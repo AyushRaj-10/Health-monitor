@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -6,7 +6,6 @@ import {
   ShieldCheck,
   User,
   Radio,
-  FileText,
   Edit3,
   Trash2,
   Heart,
@@ -17,6 +16,9 @@ import {
   Clock,
   Sparkles,
   ExternalLink,
+  WifiOff,
+  AlertTriangle,
+  X,
 } from 'lucide-react';
 import { PageHeader } from '../components/layout/PageHeader';
 import { StatusBadge } from '../components/common/StatusBadge';
@@ -32,17 +34,25 @@ import {
   getLatestPatientVitalsApi,
 } from '../services/api';
 import { VitalTimeSeriesPoint } from '../types';
+import { VitalReading } from '../types/vitals';
 import { useAuth } from '../context/AuthContext';
+import { useSocket } from '../context/SocketContext';
 
 export const PatientDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { socket, isConnected, subscribePatient, unsubscribePatient } = useSocket();
 
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [liveLatestReading, setLiveLatestReading] = useState<VitalReading | null>(null);
+  const [liveChartTelemetry, setLiveChartTelemetry] = useState<VitalTimeSeriesPoint[]>([]);
+  const [liveTableReadings, setLiveTableReadings] = useState<VitalReading[]>([]);
+  const [activeAlert, setActiveAlert] = useState<any | null>(null);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<'CONNECTING' | 'SUBSCRIBED' | 'UNAUTHORIZED'>('CONNECTING');
 
-  // Fetch real patient by ID from PostgreSQL
+  // Fetch real patient profile from PostgreSQL
   const {
     data: patient,
     isLoading,
@@ -55,21 +65,122 @@ export const PatientDetails: React.FC = () => {
     enabled: !!id,
   });
 
-  // Fetch latest real vital reading from PostgreSQL (poll every 3s for live simulation updates)
-  const { data: latestVitalsData } = useQuery({
+  // Initial hydration of latest vitals
+  const { data: initialLatestVitals } = useQuery({
     queryKey: ['patient-latest-vitals', id],
     queryFn: () => getLatestPatientVitalsApi(id!),
     enabled: !!id,
-    refetchInterval: 3000,
   });
 
-  // Fetch historical vital telemetry from PostgreSQL (poll every 3s)
-  const { data: historicalVitalsData } = useQuery({
+  // Initial hydration of historical telemetry
+  const { data: initialHistory } = useQuery({
     queryKey: ['patient-historical-vitals', id],
     queryFn: () => getPatientVitalsApi(id!, { limit: 40 }),
     enabled: !!id,
-    refetchInterval: 3000,
   });
+
+  // Hydrate local state on query load
+  useEffect(() => {
+    if (initialLatestVitals?.data && !liveLatestReading) {
+      setLiveLatestReading(initialLatestVitals.data);
+    }
+  }, [initialLatestVitals]);
+
+  useEffect(() => {
+    if (initialHistory?.data && liveChartTelemetry.length === 0) {
+      const initialPoints: VitalTimeSeriesPoint[] = initialHistory.data
+        .slice()
+        .reverse()
+        .map((r) => ({
+          time: new Date(r.recordedAt).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          }),
+          heartRate: r.heartRate,
+          spo2: r.spo2,
+          bloodPressureSys: r.bloodPressureSys,
+          bloodPressureDia: r.bloodPressureDia,
+          temperature: r.temperature,
+          respiratoryRate: r.respiratoryRate ?? undefined,
+          isAnomaly: r.scenario !== 'NORMAL',
+        }));
+      setLiveChartTelemetry(initialPoints);
+      setLiveTableReadings(initialHistory.data);
+    }
+  }, [initialHistory]);
+
+  // Real-Time Socket.IO Subscription & Event Listeners
+  useEffect(() => {
+    if (!id || !socket) return;
+
+    // 1. Subscribe to authorized patient room
+    subscribePatient(id, (res) => {
+      if (res?.success) {
+        setSubscriptionStatus('SUBSCRIBED');
+      } else if (res?.error === 'UNAUTHORIZED_PATIENT_ACCESS') {
+        setSubscriptionStatus('UNAUTHORIZED');
+      }
+    });
+
+    // 2. Real-time vitals update listener
+    const handleVitalsUpdate = (payload: any) => {
+      if (payload.patientId === id && payload.reading) {
+        const r = payload.reading;
+        setLiveLatestReading(r);
+
+        const newPoint: VitalTimeSeriesPoint = {
+          time: new Date(r.recordedAt || payload.broadcastAt).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          }),
+          heartRate: r.heartRate,
+          spo2: r.spo2,
+          bloodPressureSys: r.bloodPressureSys,
+          bloodPressureDia: r.bloodPressureDia,
+          temperature: r.temperature,
+          respiratoryRate: r.respiratoryRate ?? undefined,
+          isAnomaly: r.scenario !== 'NORMAL',
+        };
+
+        // Maintain rolling time window of max 50 data points in memory
+        setLiveChartTelemetry((prev) => [...prev.slice(-49), newPoint]);
+
+        // Prepend to telemetry table
+        setLiveTableReadings((prev) => [r, ...prev.slice(0, 24)]);
+      }
+    };
+
+    // 3. Real-time alert listener
+    const handleNewAlert = (payload: any) => {
+      if (payload.patientId === id && payload.alert) {
+        setActiveAlert(payload.alert);
+      }
+    };
+
+    // 4. Monitoring status listener
+    const handleMonitoringStatus = (data: any) => {
+      if (data.patientId === id) {
+        if (data.status === 'SUBSCRIBED') {
+          setSubscriptionStatus('SUBSCRIBED');
+        } else if (data.status === 'UNAUTHORIZED') {
+          setSubscriptionStatus('UNAUTHORIZED');
+        }
+      }
+    };
+
+    socket.on('vitals:update', handleVitalsUpdate);
+    socket.on('alert:new', handleNewAlert);
+    socket.on('monitoring:status', handleMonitoringStatus);
+
+    return () => {
+      unsubscribePatient(id);
+      socket.off('vitals:update', handleVitalsUpdate);
+      socket.off('alert:new', handleNewAlert);
+      socket.off('monitoring:status', handleMonitoringStatus);
+    };
+  }, [id, socket, isConnected]);
 
   const deleteMutation = useMutation({
     mutationFn: (patientId: string) => deletePatientApi(patientId),
@@ -85,7 +196,7 @@ export const PatientDetails: React.FC = () => {
   if (isLoading) {
     return (
       <div className="py-12">
-        <LoadingState message="Fetching patient biometrics & medical history from PostgreSQL..." rows={5} />
+        <LoadingState message="Connecting to patient stream & fetching biometrics..." rows={5} />
       </div>
     );
   }
@@ -135,28 +246,6 @@ export const PatientDetails: React.FC = () => {
     }
   };
 
-  const latestReading = latestVitalsData?.data;
-  const rawReadings = historicalVitalsData?.data || [];
-
-  // Transform historical PostgreSQL telemetry readings for charts (chronological order)
-  const chartTelemetry: VitalTimeSeriesPoint[] = rawReadings
-    .slice()
-    .reverse()
-    .map((r) => ({
-      time: new Date(r.recordedAt).toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      }),
-      heartRate: r.heartRate,
-      spo2: r.spo2,
-      bloodPressureSys: r.bloodPressureSys,
-      bloodPressureDia: r.bloodPressureDia,
-      temperature: r.temperature,
-      respiratoryRate: r.respiratoryRate ?? undefined,
-      isAnomaly: r.scenario !== 'NORMAL',
-    }));
-
   const getScenarioBadgeClass = (scenario: string) => {
     switch (scenario) {
       case 'NORMAL':
@@ -178,7 +267,43 @@ export const PatientDetails: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header with Navigation & Actions */}
+      {/* Real-Time Live Alert Toast Banner */}
+      {activeAlert && (
+        <div className="p-4 rounded-xl bg-rose-950/90 border border-rose-500/60 shadow-2xl flex items-center justify-between animate-bounce">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 rounded-lg bg-rose-500/20 text-rose-400">
+              <AlertTriangle className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-rose-300">
+                  Real-Time Edge Anomaly Alert [{activeAlert.severity}]
+                </span>
+                <span className="text-xs text-rose-200 font-mono">
+                  {new Date(activeAlert.createdAt).toLocaleTimeString()}
+                </span>
+              </div>
+              <p className="text-sm font-semibold text-white mt-0.5">{activeAlert.message}</p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Link
+              to="/alerts"
+              className="px-3 py-1 text-xs font-semibold rounded-lg bg-rose-500 text-white hover:bg-rose-600 transition-colors"
+            >
+              Triage in Alerts
+            </Link>
+            <button
+              onClick={() => setActiveAlert(null)}
+              className="p-1 text-rose-400 hover:text-white rounded"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Header with Navigation & Socket Status */}
       <PageHeader
         title={patient.name}
         subtitle={`${patient.patientCode} • ${age} years old • ${patient.gender} • DOB: ${formattedDOB}`}
@@ -188,11 +313,25 @@ export const PatientDetails: React.FC = () => {
           { label: patient.name },
         ]}
         badge={
-          <StatusBadge
-            type="risk"
-            value={patient.riskLevel}
-            pulse={patient.riskLevel === 'CRITICAL'}
-          />
+          <div className="flex items-center space-x-2">
+            <StatusBadge
+              type="risk"
+              value={patient.riskLevel}
+              pulse={patient.riskLevel === 'CRITICAL'}
+            />
+            {/* Real-Time Connection Indicator */}
+            {isConnected ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                <span>Socket Live (Push)</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                <WifiOff className="w-3 h-3" />
+                <span>Reconnecting...</span>
+              </span>
+            )}
+          </div>
         }
         actions={
           <div className="flex items-center gap-2">
@@ -285,7 +424,7 @@ export const PatientDetails: React.FC = () => {
             <div className="flex justify-between">
               <span>Department:</span>
               <span className="text-healthcare-textPrimary">
-                {patient.assignedDoctor?.department || 'Cardiology / Telemetry'}
+                {patient.assignedDoctor?.department || 'Cardiology & Remote ICU'}
               </span>
             </div>
             <div className="flex justify-between">
@@ -306,7 +445,7 @@ export const PatientDetails: React.FC = () => {
           <div className="flex items-center justify-between pb-2 border-b border-healthcare-borderSubtle">
             <div className="flex items-center gap-2 text-xs font-semibold text-healthcare-textPrimary">
               <Radio className="w-4 h-4 text-teal-400" />
-              <span>Clinical Diagnosis</span>
+              <span>Clinical Channel</span>
             </div>
             <StatusBadge type="risk" value={patient.riskLevel} size="sm" />
           </div>
@@ -318,20 +457,20 @@ export const PatientDetails: React.FC = () => {
               </span>
             </div>
             <div className="flex justify-between">
-              <span>Differential Privacy:</span>
-              <span className="font-mono text-emerald-400">ε=0.5 Bound Active</span>
+              <span>Room Channel:</span>
+              <span className="font-mono text-emerald-400">patient:{patient.id.slice(0, 8)}...</span>
             </div>
             <div className="flex justify-between">
-              <span>Provisioned Unit:</span>
+              <span>Access Policy:</span>
               <span className="font-mono text-[11px] text-emerald-400">
-                {latestReading?.device?.deviceCode || 'DEV-Active'}
+                {subscriptionStatus === 'SUBSCRIBED' ? 'Authorized (Encrypted)' : subscriptionStatus}
               </span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* STAGE 3: LIVE IoMT BIOMETRICS STREAM SECTION */}
+      {/* LIVE REAL-TIME IoMT BIOMETRICS STREAM SECTION (SOCKET.IO POWERED) */}
       <div className="bg-[#071311] border border-emerald-500/30 rounded-xl p-5 shadow-2xl relative overflow-hidden">
         {/* Glow */}
         <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
@@ -344,24 +483,26 @@ export const PatientDetails: React.FC = () => {
             <div>
               <div className="flex items-center space-x-2">
                 <h2 className="text-base font-bold text-white tracking-tight">
-                  Live IoMT Telemetry Feed
+                  Real-Time IoMT Telemetry Stream
                 </h2>
-                {/* Clear Identification of Simulated Data (Requirement) */}
                 <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center space-x-1">
                   <Sparkles className="w-3 h-3" />
                   <span>Simulated IoMT Feed</span>
                 </span>
+                <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                  WebSocket Push
+                </span>
               </div>
               <p className="text-xs text-slate-400">
-                Continuous biometric stream from edge gateway via authenticated HTTP ingestion
+                Synchronized live biometrics delivered directly via Socket.IO events (Zero manual refresh)
               </p>
             </div>
           </div>
 
           <div className="flex items-center space-x-3">
-            {latestReading && (
-              <span className={`px-2.5 py-1 text-xs font-mono font-semibold rounded-lg border ${getScenarioBadgeClass(latestReading.scenario)}`}>
-                Scenario: {latestReading.scenario}
+            {liveLatestReading && (
+              <span className={`px-2.5 py-1 text-xs font-mono font-semibold rounded-lg border ${getScenarioBadgeClass(liveLatestReading.scenario)}`}>
+                Scenario: {liveLatestReading.scenario}
               </span>
             )}
             <Link
@@ -374,8 +515,8 @@ export const PatientDetails: React.FC = () => {
           </div>
         </div>
 
-        {/* 4 Live Vitals Cards */}
-        {latestReading ? (
+        {/* 4 Live Vitals Cards (Updates instantaneously on socket event) */}
+        {liveLatestReading ? (
           <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
             {/* Heart Rate */}
             <div className="p-4 rounded-xl bg-slate-950/70 border border-emerald-500/20">
@@ -387,20 +528,20 @@ export const PatientDetails: React.FC = () => {
                 <span className="text-[10px] text-slate-500 font-mono">BPM</span>
               </div>
               <div
-                className={`text-3xl font-bold font-mono mt-2 ${
-                  latestReading.heartRate > 120 || latestReading.heartRate < 55
+                className={`text-3xl font-bold font-mono mt-2 transition-all ${
+                  liveLatestReading.heartRate > 120 || liveLatestReading.heartRate < 55
                     ? 'text-rose-400'
-                    : latestReading.heartRate > 100
+                    : liveLatestReading.heartRate > 100
                     ? 'text-amber-400'
                     : 'text-emerald-400'
                 }`}
               >
-                {latestReading.heartRate}
+                {liveLatestReading.heartRate}
               </div>
               <div className="text-[11px] text-slate-400 mt-1 flex items-center justify-between">
                 <span>Target: 60-100 bpm</span>
                 <span className="font-semibold text-xs">
-                  {latestReading.heartRate > 120 ? 'Tachycardia' : latestReading.heartRate < 55 ? 'Bradycardia' : 'Normal'}
+                  {liveLatestReading.heartRate > 120 ? 'Tachycardia' : liveLatestReading.heartRate < 55 ? 'Bradycardia' : 'Normal'}
                 </span>
               </div>
             </div>
@@ -415,20 +556,20 @@ export const PatientDetails: React.FC = () => {
                 <span className="text-[10px] text-slate-500 font-mono">%</span>
               </div>
               <div
-                className={`text-3xl font-bold font-mono mt-2 ${
-                  latestReading.spo2 < 90
+                className={`text-3xl font-bold font-mono mt-2 transition-all ${
+                  liveLatestReading.spo2 < 90
                     ? 'text-rose-400'
-                    : latestReading.spo2 < 95
+                    : liveLatestReading.spo2 < 95
                     ? 'text-amber-400'
                     : 'text-emerald-400'
                 }`}
               >
-                {latestReading.spo2}%
+                {liveLatestReading.spo2}%
               </div>
               <div className="text-[11px] text-slate-400 mt-1 flex items-center justify-between">
                 <span>Threshold: &ge;95%</span>
                 <span className="font-semibold text-xs">
-                  {latestReading.spo2 < 90 ? 'Hypoxia Alert' : latestReading.spo2 < 95 ? 'Borderline' : 'Optimal'}
+                  {liveLatestReading.spo2 < 90 ? 'Hypoxia Alert' : liveLatestReading.spo2 < 95 ? 'Borderline' : 'Optimal'}
                 </span>
               </div>
             </div>
@@ -443,20 +584,20 @@ export const PatientDetails: React.FC = () => {
                 <span className="text-[10px] text-slate-500 font-mono">mmHg</span>
               </div>
               <div
-                className={`text-3xl font-bold font-mono mt-2 ${
-                  latestReading.bloodPressureSys >= 170
+                className={`text-3xl font-bold font-mono mt-2 transition-all ${
+                  liveLatestReading.bloodPressureSys >= 170
                     ? 'text-rose-400'
-                    : latestReading.bloodPressureSys >= 135
+                    : liveLatestReading.bloodPressureSys >= 135
                     ? 'text-amber-400'
                     : 'text-emerald-400'
                 }`}
               >
-                {latestReading.bloodPressureSys}/{latestReading.bloodPressureDia}
+                {liveLatestReading.bloodPressureSys}/{liveLatestReading.bloodPressureDia}
               </div>
               <div className="text-[11px] text-slate-400 mt-1 flex items-center justify-between">
                 <span>Standard: 120/80</span>
                 <span className="font-semibold text-xs">
-                  {latestReading.bloodPressureSys >= 180 ? 'Crisis' : latestReading.bloodPressureSys >= 130 ? 'Elevated' : 'Normal'}
+                  {liveLatestReading.bloodPressureSys >= 180 ? 'Crisis' : liveLatestReading.bloodPressureSys >= 130 ? 'Elevated' : 'Normal'}
                 </span>
               </div>
             </div>
@@ -471,20 +612,20 @@ export const PatientDetails: React.FC = () => {
                 <span className="text-[10px] text-slate-500 font-mono">°C</span>
               </div>
               <div
-                className={`text-3xl font-bold font-mono mt-2 ${
-                  latestReading.temperature >= 38.5
+                className={`text-3xl font-bold font-mono mt-2 transition-all ${
+                  liveLatestReading.temperature >= 38.5
                     ? 'text-rose-400'
-                    : latestReading.temperature >= 37.5
+                    : liveLatestReading.temperature >= 37.5
                     ? 'text-amber-400'
                     : 'text-emerald-400'
                 }`}
               >
-                {latestReading.temperature}°C
+                {liveLatestReading.temperature}°C
               </div>
               <div className="text-[11px] text-slate-400 mt-1 flex items-center justify-between">
                 <span>Range: 36.5-37.5</span>
                 <span className="font-semibold text-xs">
-                  {latestReading.temperature >= 38.5 ? 'High Fever' : latestReading.temperature >= 37.5 ? 'Mild Pyrexia' : 'Afebrile'}
+                  {liveLatestReading.temperature >= 38.5 ? 'High Fever' : liveLatestReading.temperature >= 37.5 ? 'Mild Pyrexia' : 'Afebrile'}
                 </span>
               </div>
             </div>
@@ -493,98 +634,73 @@ export const PatientDetails: React.FC = () => {
           <div className="mt-4 p-8 text-center bg-slate-950/50 rounded-xl border border-slate-800">
             <Radio className="w-8 h-8 text-slate-600 mx-auto mb-2 animate-pulse" />
             <p className="text-sm text-slate-300 font-medium">
-              No live telemetry recorded yet for this patient.
+              Waiting for live biometric stream from IoMT edge device...
             </p>
             <p className="text-xs text-slate-500 mt-1">
-              Associate an IoMT device in the Device Inventory or launch the Edge Simulator to begin streaming.
+              Ensure the Edge simulator node is running (`npm run simulate` in edge/).
             </p>
-            <Link
-              to="/devices"
-              className="mt-3 inline-flex items-center space-x-1.5 px-4 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500 text-slate-950 hover:bg-emerald-400 transition-colors"
-            >
-              <Cpu className="w-3.5 h-3.5" />
-              <span>Go to IoMT Device Manager</span>
-            </Link>
           </div>
         )}
 
-        {latestReading && (
+        {liveLatestReading && (
           <div className="mt-3 flex items-center justify-between text-[11px] text-slate-400 font-mono pt-2 border-t border-slate-800/80">
             <div className="flex items-center space-x-2">
               <Clock className="w-3 h-3 text-emerald-400" />
-              <span>Ingested: {new Date(latestReading.recordedAt).toLocaleString()}</span>
+              <span>Event Timestamp: {new Date(liveLatestReading.recordedAt).toLocaleString()}</span>
             </div>
             <div className="flex items-center space-x-2">
-              <span>Device: {latestReading.device?.deviceCode || 'DEV-1001'}</span>
+              <span>Device: {liveLatestReading.device?.deviceCode || 'DEV-ACTIVE'}</span>
               <span>•</span>
-              <span className="text-emerald-400">PostgreSQL Persisted</span>
+              <span className="text-emerald-400">PostgreSQL Committed &amp; Dispatched</span>
             </div>
           </div>
         )}
       </div>
 
-      {/* Medical History Section */}
-      <div className="bg-healthcare-surface border border-healthcare-border rounded-xl p-5">
-        <div className="flex items-center gap-2 mb-3">
-          <FileText className="w-4 h-4 text-teal-400" />
-          <h3 className="text-sm font-semibold text-healthcare-textPrimary">
-            Medical History &amp; Comorbidities (PostgreSQL Record)
-          </h3>
-        </div>
-        <div className="bg-healthcare-surfaceLight border border-healthcare-borderSubtle rounded-lg p-4 text-xs text-healthcare-textSecondary leading-relaxed">
-          {patient.medicalHistory ? (
-            <p className="whitespace-pre-line">{patient.medicalHistory}</p>
-          ) : (
-            <p className="italic text-healthcare-textMuted">
-              No previous medical history recorded. Click "Edit Details" to update the patient chart.
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* Visual Telemetry Trends (Real Ingested Telemetry) */}
+      {/* Visual Telemetry Trends (Real-Time Live Recharts without refresh) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-healthcare-surface border border-healthcare-border rounded-xl p-5">
+        <div className="bg-healthcare-surface border border-healthcare-border rounded-xl p-5 shadow-xl">
           <div className="flex items-center justify-between mb-1">
             <h3 className="text-sm font-semibold text-healthcare-textPrimary">
-              Heart Rate Telemetry Stream
+              Continuous Heart Rate Waveform
             </h3>
             <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-              Live Stream ({chartTelemetry.length} pts)
+              Live Window ({liveChartTelemetry.length} pts)
             </span>
           </div>
           <p className="text-xs text-healthcare-textSecondary mb-4">
-            Live telemetry with Laplace differential privacy preservation (ε=0.5)
+            Real-time streaming via Socket.IO with differential privacy Laplace noise applied (ε=0.5)
           </p>
-          <HeartRateChart data={chartTelemetry} height={250} />
+          <HeartRateChart data={liveChartTelemetry} height={250} />
         </div>
 
-        <div className="bg-healthcare-surface border border-healthcare-border rounded-xl p-5">
+        <div className="bg-healthcare-surface border border-healthcare-border rounded-xl p-5 shadow-xl">
           <div className="flex items-center justify-between mb-1">
             <h3 className="text-sm font-semibold text-healthcare-textPrimary">
               SpO2 Oxygen Saturation Profile
             </h3>
             <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-              Automated Surveillance
+              Surveillance Stream
             </span>
           </div>
           <p className="text-xs text-healthcare-textSecondary mb-4">
-            Continuous threshold surveillance for acute hypoxic desaturation (&lt;90%)
+            Live rolling time window with automated threshold surveillance for hypoxic desaturation
           </p>
-          <SpO2Chart data={chartTelemetry} height={250} />
+          <SpO2Chart data={liveChartTelemetry} height={250} />
         </div>
       </div>
 
-      {/* Historical Telemetry Stream Log Table */}
+      {/* Historical Telemetry Stream Log Table (Updates Live) */}
       <div className="bg-healthcare-surface border border-healthcare-border rounded-xl overflow-hidden shadow-xl">
         <div className="p-4 border-b border-healthcare-border flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <Activity className="w-4 h-4 text-teal-400" />
-            <h3 className="text-sm font-semibold text-white">Recent Telemetry Ingestion Log</h3>
-            <span className="text-xs font-mono text-slate-400">({rawReadings.length} records)</span>
+            <h3 className="text-sm font-semibold text-white">Live Telemetry Ingestion Log</h3>
+            <span className="text-xs font-mono text-slate-400">({liveTableReadings.length} records in memory window)</span>
           </div>
-          <span className="text-xs text-slate-400 font-mono">
-            Auto-refreshing every 3s
+          <span className="text-xs text-emerald-400 font-mono flex items-center space-x-1">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            <span>Event Driven (Socket.IO)</span>
           </span>
         </div>
 
@@ -603,15 +719,15 @@ export const PatientDetails: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 font-mono">
-              {rawReadings.length === 0 ? (
+              {liveTableReadings.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-5 py-8 text-center text-slate-500 font-sans">
-                    No historical telemetry records found for this patient.
+                    Waiting for live telemetry events from edge device...
                   </td>
                 </tr>
               ) : (
-                rawReadings.slice(0, 15).map((r) => (
-                  <tr key={r.id} className="hover:bg-teal-950/20 transition-colors">
+                liveTableReadings.slice(0, 15).map((r, idx) => (
+                  <tr key={r.id || idx} className="hover:bg-teal-950/20 transition-colors">
                     <td className="px-5 py-2.5 text-slate-300">
                       {new Date(r.recordedAt).toLocaleTimeString()}
                     </td>

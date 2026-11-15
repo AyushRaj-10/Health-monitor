@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { prisma } from '../config/prisma.js';
+import { emitDeviceStatus } from '../services/socket.service.js';
 import {
   createDeviceSchema,
   updateDeviceSchema,
@@ -302,6 +303,14 @@ export async function recordHeartbeat(req, res, next) {
         status: status || 'ONLINE',
         ...(batteryLevel !== undefined && { batteryLevel }),
       },
+    });
+
+    emitDeviceStatus(updated.id, updated.patientId, {
+      id: updated.id,
+      deviceCode: updated.deviceCode,
+      status: updated.status,
+      batteryLevel: updated.batteryLevel,
+      lastHeartbeat: updated.lastHeartbeat,
     });
 
     res.status(200).json({

@@ -1,4 +1,5 @@
 import { prisma } from '../config/prisma.js';
+import { emitNewAlert, emitAlertUpdate } from '../services/socket.service.js';
 
 /**
  * POST /api/alerts/ingest
@@ -80,6 +81,9 @@ export async function ingestAlert(req, res, next) {
         },
       },
     });
+
+    // Broadcast real-time alert event (strictly after database persistence)
+    emitNewAlert(patient.id, alert);
 
     res.status(201).json({
       success: true,
@@ -181,6 +185,9 @@ export async function acknowledgeAlert(req, res, next) {
       },
     });
 
+    // Broadcast alert update event
+    emitAlertUpdate(alert.patientId, alert);
+
     res.status(200).json({
       success: true,
       message: 'Alert acknowledged.',
@@ -208,6 +215,9 @@ export async function resolveAlert(req, res, next) {
         patient: { select: { id: true, name: true, patientCode: true } },
       },
     });
+
+    // Broadcast alert update event
+    emitAlertUpdate(alert.patientId, alert);
 
     res.status(200).json({
       success: true,
