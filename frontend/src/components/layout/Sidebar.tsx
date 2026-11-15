@@ -39,6 +39,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCloseMobile }) => {
       icon: Users,
     },
     {
+      label: 'IoMT Devices',
+      to: '/devices',
+      icon: Cpu,
+      badge: 'Edge',
+      badgeColor: 'bg-emerald-950 text-emerald-300 border-emerald-800/60',
+    },
+    {
       label: 'Live Monitoring',
       to: '/monitoring',
       icon: Activity,

@@ -1,0 +1,57 @@
+[
+  {
+    "id": "e142ae00-64c2-4c00-9c2a-aca1433ac691",
+    "deviceCode": "DEV-1001",
+    "name": "PulseGuard Continuous ECG Patch",
+    "patientId": "28657e0f-6787-4f36-8d65-884bbaff96ac",
+    "patientCode": "PAT-84920",
+    "patientName": "Arthur Pendelton",
+    "apiKey": "dev_key_arthur_ecg_84920",
+    "intervalMs": 3000,
+    "scenario": "NORMAL"
+  },
+  {
+    "id": "ce614ae7-cf0e-4892-abf3-41f25c71a4e9",
+    "deviceCode": "DEV-1002",
+    "name": "PulseGuard Ambulatory SpO2 Clip",
+    "patientId": "e30a1576-412b-4de4-bf10-e3f1825eca95",
+    "patientCode": "PAT-55104",
+    "patientName": "Beatrice Chen",
+    "apiKey": "dev_key_beatrice_spo2_55104",
+    "intervalMs": 3000,
+    "scenario": "NORMAL"
+  },
+  {
+    "id": "124716f1-6216-4350-a993-a1c2cb8963f0",
+    "deviceCode": "DEV-1003",
+    "name": "IoMT Smart Holter Streamer",
+    "patientId": "a274320f-0b90-4923-bf9b-0ed49d448f2b",
+    "patientCode": "PAT-91244",
+    "patientName": "Marcus Aurelius Sterling",
+    "apiKey": "dev_key_marcus_holter_91244",
+    "intervalMs": 3000,
+    "scenario": "WARNING_ELEVATED_HR"
+  },
+  {
+    "id": "0f52959b-768a-4444-83a2-0420145d28d9",
+    "deviceCode": "DEV-1004",
+    "name": "Medical Multi-Param Smartwatch",
+    "patientId": "5103aa4a-9136-4637-a822-24b98be195b8",
+    "patientCode": "PAT-33019",
+    "patientName": "Sophia Rodriguez",
+    "apiKey": "dev_key_sophia_watch_33019",
+    "intervalMs": 4000,
+    "scenario": "NORMAL"
+  },
+  {
+    "id": "22ab3763-2337-4e0e-8455-ab6b51c66844",
+    "deviceCode": "DEV-1005",
+    "name": "Continuous Respiratory & BP Cuff",
+    "patientId": "bf168c69-3a4e-437b-a6d4-838496b39245",
+    "patientCode": "PAT-72418",
+    "patientName": "David K. O’Connor",
+    "apiKey": "dev_key_david_bp_72418",
+    "intervalMs": 4000,
+    "scenario": "NORMAL"
+  }
+]

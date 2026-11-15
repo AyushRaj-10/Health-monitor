@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Seeding PostgreSQL database for Stage 2 Authentication & Patient Management...');
+  console.log('🌱 Seeding PostgreSQL database for Stage 3 IoMT Simulation & Vitals Data Collection...');
 
   const salt = await bcrypt.genSalt(10);
   const adminPasswordHash = await bcrypt.hash('Admin123!', salt);
@@ -31,7 +31,7 @@ async function main() {
     },
   });
 
-  // 2. Seed Attending Cardiologist (Doctor)
+  // 2. Seed Attending Doctor (Dr. Elena Vance)
   const doctorElena = await prisma.user.upsert({
     where: { email: 'dr.vance@iomt-health.org' },
     update: {
@@ -51,7 +51,7 @@ async function main() {
     },
   });
 
-  // 3. Seed Second Doctor
+  // 3. Seed Second Doctor (Dr. Aris Thorne)
   const doctorAris = await prisma.user.upsert({
     where: { email: 'dr.thorne@iomt-health.org' },
     update: {
@@ -71,8 +71,8 @@ async function main() {
     },
   });
 
-  // 4. Seed Staff Nurse
-  const nurseSarah = await prisma.user.upsert({
+  // 4. Seed Staff Nurse (Sarah Davis)
+  await prisma.user.upsert({
     where: { email: 'nurse.davis@iomt-health.org' },
     update: {
       passwordHash: nursePasswordHash,
@@ -90,12 +90,6 @@ async function main() {
       department: 'Tele-ICU Monitoring Ward',
     },
   });
-
-  console.log('✅ Users seeded:');
-  console.log('   - Admin:   admin@iomt-health.org (Password: Admin123!)');
-  console.log('   - Doctor:  dr.vance@iomt-health.org (Password: Doctor123!)');
-  console.log('   - Doctor:  dr.thorne@iomt-health.org (Password: Doctor123!)');
-  console.log('   - Nurse:   nurse.davis@iomt-health.org (Password: Nurse123!)');
 
   // 5. Initial Privacy Config
   const existingConfig = await prisma.privacyConfig.findFirst();
@@ -206,27 +200,125 @@ async function main() {
     },
   ];
 
+  const seededPatients = {};
   for (const p of patientsData) {
-    await prisma.patient.upsert({
+    const record = await prisma.patient.upsert({
       where: { patientCode: p.patientCode },
-      update: {
-        name: p.name,
-        dateOfBirth: p.dateOfBirth,
-        gender: p.gender,
-        contactInformation: p.contactInformation,
-        assignedDoctorId: p.assignedDoctorId,
-        condition: p.condition,
-        riskLevel: p.riskLevel,
-        roomOrLocation: p.roomOrLocation,
-        status: p.status,
-        medicalHistory: p.medicalHistory,
-      },
+      update: p,
       create: p,
     });
+    seededPatients[p.patientCode] = record;
+  }
+  console.log(`✅ Seeded ${patientsData.length} patient records.`);
+
+  // 7. Seed IoMT Devices associated with Patients
+  const devicesData = [
+    {
+      deviceCode: 'DEV-1001',
+      name: 'PulseGuard Continuous ECG Patch',
+      deviceType: 'ECG_PATCH',
+      status: 'ONLINE',
+      batteryLevel: 88,
+      firmwareVersion: 'v2.4.1-sim',
+      edgeNodeId: 'EDGE-GATEWAY-RPI4-01',
+      apiKey: 'dev_key_arthur_ecg_84920',
+      patientId: seededPatients['PAT-84920']?.id,
+      isSimulated: true,
+    },
+    {
+      deviceCode: 'DEV-1002',
+      name: 'PulseGuard Ambulatory SpO2 Clip',
+      deviceType: 'PULSE_OXIMETER',
+      status: 'ONLINE',
+      batteryLevel: 74,
+      firmwareVersion: 'v2.4.1-sim',
+      edgeNodeId: 'EDGE-GATEWAY-RPI4-01',
+      apiKey: 'dev_key_beatrice_spo2_55104',
+      patientId: seededPatients['PAT-55104']?.id,
+      isSimulated: true,
+    },
+    {
+      deviceCode: 'DEV-1003',
+      name: 'IoMT Smart Holter Streamer',
+      deviceType: 'SMARTWATCH',
+      status: 'ONLINE',
+      batteryLevel: 62,
+      firmwareVersion: 'v2.3.9-sim',
+      edgeNodeId: 'EDGE-GATEWAY-RPI4-02',
+      apiKey: 'dev_key_marcus_holter_91244',
+      patientId: seededPatients['PAT-91244']?.id,
+      isSimulated: true,
+    },
+    {
+      deviceCode: 'DEV-1004',
+      name: 'Medical Multi-Param Smartwatch',
+      deviceType: 'SMARTWATCH',
+      status: 'ONLINE',
+      batteryLevel: 95,
+      firmwareVersion: 'v2.4.1-sim',
+      edgeNodeId: 'EDGE-GATEWAY-RPI4-03',
+      apiKey: 'dev_key_sophia_watch_33019',
+      patientId: seededPatients['PAT-33019']?.id,
+      isSimulated: true,
+    },
+    {
+      deviceCode: 'DEV-1005',
+      name: 'Continuous Respiratory & BP Cuff',
+      deviceType: 'BP_CUFF',
+      status: 'ONLINE',
+      batteryLevel: 45,
+      firmwareVersion: 'v2.4.1-sim',
+      edgeNodeId: 'EDGE-GATEWAY-RPI4-02',
+      apiKey: 'dev_key_david_bp_72418',
+      patientId: seededPatients['PAT-72418']?.id,
+      isSimulated: true,
+    },
+  ];
+
+  const seededDevices = {};
+  for (const d of devicesData) {
+    const dev = await prisma.device.upsert({
+      where: { deviceCode: d.deviceCode },
+      update: d,
+      create: d,
+    });
+    seededDevices[d.deviceCode] = dev;
+  }
+  console.log(`✅ Seeded ${devicesData.length} IoMT devices with secure API keys.`);
+
+  // 8. Seed initial historical Vital Readings (for patient PAT-84920 and others)
+  const arthur = seededPatients['PAT-84920'];
+  const arthurDevice = seededDevices['DEV-1001'];
+
+  if (arthur && arthurDevice) {
+    const now = Date.now();
+    const readings = [];
+    // Generate 12 readings spread across the past 2 hours
+    for (let i = 12; i >= 0; i--) {
+      const timeOffset = i * 10 * 60 * 1000; // every 10 mins
+      const isElevated = i <= 3; // recent readings show elevated HR
+      readings.push({
+        patientId: arthur.id,
+        deviceId: arthurDevice.id,
+        heartRate: isElevated ? 112 + Math.floor(Math.random() * 8) : 76 + Math.floor(Math.random() * 8),
+        spo2: isElevated ? 92.5 : 97.5,
+        bloodPressureSys: isElevated ? 144 : 122,
+        bloodPressureDia: isElevated ? 92 : 82,
+        temperature: 36.8 + (Math.random() * 0.4 - 0.2),
+        respiratoryRate: isElevated ? 22 : 16,
+        isSimulated: true,
+        scenario: isElevated ? 'WARNING_ELEVATED_HR' : 'NORMAL',
+        recordedAt: new Date(now - timeOffset),
+      });
+    }
+
+    for (const r of readings) {
+      await prisma.vitalReading.create({ data: r });
+    }
+    console.log(`✅ Seeded ${readings.length} historical vital readings for Arthur Pendelton.`);
   }
 
-  console.log(`✅ Seeded ${patientsData.length} initial clinical patient records.`);
-  console.log('🎉 Seed complete.');
+  console.log('🎉 Seed completed successfully!');
 }
 
 main()
