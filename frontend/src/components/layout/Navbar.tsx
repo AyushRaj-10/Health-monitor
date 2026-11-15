@@ -7,8 +7,11 @@ import {
   ShieldCheck,
   ExternalLink,
   Lock,
+  LogOut,
+  User,
 } from 'lucide-react';
 import { mockAlerts } from '../../data/mockData';
+import { useAuth } from '../../context/AuthContext';
 
 interface NavbarProps {
   onToggleMobileSidebar: () => void;
@@ -16,8 +19,23 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const [showAlertsDropdown, setShowAlertsDropdown] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+
   const unreadAlerts = mockAlerts.filter((a) => !a.isAcknowledged);
+
+  const getInitials = (name?: string) => {
+    if (!name) return 'EV';
+    const parts = name.replace(/Dr\.|MD|RN/g, '').trim().split(' ');
+    if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    return parts[0].slice(0, 2).toUpperCase();
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
 
   return (
     <header className="h-16 bg-healthcare-surface border-b border-healthcare-border flex items-center justify-between px-4 md:px-6 shrink-0 relative z-30">
@@ -33,7 +51,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
         <div className="flex items-center gap-2">
           <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-teal-950/80 text-teal-300 border border-teal-800/60">
             <Radio className="w-3 h-3 text-emerald-400 animate-pulse" />
-            <span>IoMT Live Mesh: 42 Streams Active</span>
+            <span>IoMT Live Mesh: Authenticated Active</span>
           </span>
 
           <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-950/60 text-emerald-300 border border-emerald-800/40">
@@ -106,17 +124,60 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
           <span className="hidden sm:inline">Privacy Engine</span>
         </button>
 
-        {/* Clinician Pill */}
-        <div
-          onClick={() => navigate('/settings')}
-          className="flex items-center gap-2 pl-2 border-l border-healthcare-borderSubtle cursor-pointer hover:opacity-85 transition-opacity"
-        >
-          <div className="w-7 h-7 rounded-full bg-teal-800 text-teal-200 text-xs font-semibold flex items-center justify-center">
-            EV
+        {/* Clinician Profile Dropdown */}
+        <div className="relative">
+          <div
+            onClick={() => setShowProfileMenu(!showProfileMenu)}
+            className="flex items-center gap-2 pl-2 border-l border-healthcare-borderSubtle cursor-pointer hover:opacity-85 transition-opacity"
+          >
+            <div className="w-8 h-8 rounded-full bg-teal-800 text-teal-200 text-xs font-semibold flex items-center justify-center">
+              {getInitials(user?.name)}
+            </div>
+            <div className="hidden lg:block text-left">
+              <div className="text-xs font-semibold text-healthcare-textPrimary">
+                {user?.name || 'Dr. Elena Vance'}
+              </div>
+              <div className="text-[10px] text-teal-400 font-mono">
+                {user?.role || 'DOCTOR'}
+              </div>
+            </div>
           </div>
-          <span className="text-xs font-medium text-healthcare-textPrimary hidden lg:inline">
-            Dr. Elena Vance
-          </span>
+
+          {showProfileMenu && (
+            <div className="absolute right-0 mt-2 w-56 bg-healthcare-surface border border-healthcare-border rounded-xl shadow-2xl p-2 z-50">
+              <div className="px-3 py-2 border-b border-healthcare-borderSubtle">
+                <div className="text-xs font-semibold text-healthcare-textPrimary truncate">
+                  {user?.name}
+                </div>
+                <div className="text-[10px] text-healthcare-textMuted font-mono truncate">
+                  {user?.email}
+                </div>
+                <div className="text-[10px] text-teal-400 font-mono mt-0.5">
+                  Role: {user?.role}
+                </div>
+              </div>
+
+              <div className="pt-1">
+                <button
+                  onClick={() => {
+                    setShowProfileMenu(false);
+                    navigate('/settings');
+                  }}
+                  className="w-full text-left px-3 py-2 rounded-lg text-xs text-healthcare-textSecondary hover:text-white hover:bg-healthcare-surfaceHover flex items-center gap-2"
+                >
+                  <User className="w-3.5 h-3.5" />
+                  <span>Profile &amp; Settings</span>
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="w-full text-left px-3 py-2 rounded-lg text-xs text-rose-400 hover:bg-rose-950/40 flex items-center gap-2"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Sign Out Session</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </header>

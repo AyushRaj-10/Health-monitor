@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,10 +8,9 @@ datasource db {
 }
 
 enum Role {
+  ADMIN
   DOCTOR
   NURSE
-  PRIVACY_OFFICER
-  ADMIN
 }
 
 enum RiskLevel {
@@ -51,70 +47,97 @@ enum AlertSeverity {
 }
 
 model User {
-  id           String        @id @default(uuid())
-  email        String        @unique
-  fullName     String
-  role         Role          @default(DOCTOR)
-  department   String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  patients     Patient[]     @relation("DoctorPatients")
-  auditLogs    PrivacyAuditLog[]
+  id            String            @id @default(uuid())
+  name          String
+  email         String            @unique
+  passwordHash  String
+  role          Role              @default(DOCTOR)
+  isActive      Boolean           @default(true)
+  department    String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  patients      Patient[]         @relation("DoctorPatients")
+  refreshTokens RefreshToken[]
+  auditLogs     PrivacyAuditLog[]
+
+  @@index([email])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Patient {
-  id                  String        @id @default(uuid())
-  medicalRecordNumber String        @unique
-  fullName            String
-  age                 Int
-  gender              String
-  condition           String
-  riskLevel           RiskLevel     @default(LOW)
-  roomOrLocation      String?
-  status              PatientStatus @default(ACTIVE)
-  assignedDoctorId    String?
-  assignedDoctor      User?         @relation("DoctorPatients", fields: [assignedDoctorId], references: [id])
-  devices             EdgeDevice[]
-  vitals              VitalRecord[]
-  alerts              Alert[]
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  id                 String        @id @default(uuid())
+  patientCode        String        @unique
+  name               String
+  dateOfBirth        DateTime
+  gender             String
+  contactInformation String?
+  assignedDoctorId   String?
+  assignedDoctor     User?         @relation("DoctorPatients", fields: [assignedDoctorId], references: [id], onDelete: SetNull)
+  medicalHistory     String?
+  condition          String?       @default("Under Observation")
+  riskLevel          RiskLevel     @default(LOW)
+  roomOrLocation     String?
+  status             PatientStatus @default(ACTIVE)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  devices            EdgeDevice[]
+  vitals             VitalRecord[]
+  alerts             Alert[]
+
+  @@index([patientCode])
+  @@index([name])
+  @@index([assignedDoctorId])
 }
 
 model EdgeDevice {
-  id           String       @id @default(uuid())
-  deviceName   String
-  deviceType   DeviceType   @default(SMARTWATCH)
-  macAddress   String       @unique
-  edgeNodeId   String
-  status       DeviceStatus @default(ONLINE)
-  batteryLevel Int          @default(100)
-  lastHeartbeat DateTime    @default(now())
-  patientId    String?
-  patient      Patient?     @relation(fields: [patientId], references: [id])
-  vitals       VitalRecord[]
-  alerts       Alert[]
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  id            String       @id @default(uuid())
+  deviceName    String
+  deviceType    DeviceType   @default(SMARTWATCH)
+  macAddress    String       @unique
+  edgeNodeId    String
+  status        DeviceStatus @default(ONLINE)
+  batteryLevel  Int          @default(100)
+  lastHeartbeat DateTime     @default(now())
+  patientId     String?
+  patient       Patient?     @relation(fields: [patientId], references: [id])
+  vitals        VitalRecord[]
+  alerts        Alert[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 }
 
 model VitalRecord {
-  id                  String      @id @default(uuid())
-  patientId           String
-  patient             Patient     @relation(fields: [patientId], references: [id])
-  edgeDeviceId        String?
-  edgeDevice          EdgeDevice? @relation(fields: [edgeDeviceId], references: [id])
-  heartRate           Int
-  spo2                Int
-  bloodPressureSys    Int?
-  bloodPressureDia    Int?
-  temperature         Float?
-  respiratoryRate     Int?
-  isEdgeFiltered      Boolean     @default(true)
-  noiseAdded          Float       @default(0.0)
-  epsilonBudgetUsed   Float       @default(0.01)
-  recordedAt          DateTime    @default(now())
-  createdAt           DateTime    @default(now())
+  id                String      @id @default(uuid())
+  patientId         String
+  patient           Patient     @relation(fields: [patientId], references: [id])
+  edgeDeviceId      String?
+  edgeDevice        EdgeDevice? @relation(fields: [edgeDeviceId], references: [id])
+  heartRate         Int
+  spo2              Int
+  bloodPressureSys  Int?
+  bloodPressureDia  Int?
+  temperature       Float?
+  respiratoryRate   Int?
+  isEdgeFiltered    Boolean     @default(true)
+  noiseAdded        Float       @default(0.0)
+  epsilonBudgetUsed Float       @default(0.01)
+  recordedAt        DateTime    @default(now())
+  createdAt         DateTime    @default(now())
 
   @@index([patientId, recordedAt])
 }

@@ -1,5 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
   Users,
   Radio,
@@ -8,23 +9,42 @@ import {
   ShieldCheck,
   ArrowUpRight,
   ExternalLink,
+  ChevronRight,
+  User,
 } from 'lucide-react';
 import { PageHeader } from '../components/layout/PageHeader';
 import { StatCard } from '../components/common/StatCard';
-import { PatientTable } from '../components/patients/PatientTable';
+import { StatusBadge } from '../components/common/StatusBadge';
 import { HeartRateChart } from '../components/charts/HeartRateChart';
 import { SpO2Chart } from '../components/charts/SpO2Chart';
 import { AlertItemComponent } from '../components/alerts/AlertItem';
 import {
   mockDashboardStats,
-  mockPatients,
   mockAlerts,
   mockHeartRateTrends,
   mockSpO2Trends,
 } from '../data/mockData';
+import { getPatientsApi } from '../services/api';
+import { BackendPatient } from '../types/patient';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
+
+  // Fetch real patient records from PostgreSQL
+  const { data: patientResponse } = useQuery({
+    queryKey: ['dashboard-patients'],
+    queryFn: () => getPatientsApi({ page: 1, limit: 5 }),
+  });
+
+  const realPatients = patientResponse?.data || [];
+  const totalPatientCount = patientResponse?.pagination?.total ?? mockDashboardStats.totalPatients;
+
+  const calculateAge = (dobString: string): number => {
+    const dob = new Date(dobString);
+    const diffMs = Date.now() - dob.getTime();
+    const ageDate = new Date(diffMs);
+    return Math.abs(ageDate.getUTCFullYear() - 1970);
+  };
 
   return (
     <div className="space-y-6">
@@ -35,21 +55,21 @@ export const Dashboard: React.FC = () => {
         badge={
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-950/80 text-emerald-300 border border-emerald-800/60">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            Live Sync
+            PostgreSQL Live Sync
           </span>
         }
         actions={
           <div className="flex items-center gap-2">
             <button
               onClick={() => navigate('/monitoring')}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-xs font-medium transition-colors shadow-sm"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-xs font-medium transition-colors shadow-sm cursor-pointer"
             >
               <Radio className="w-3.5 h-3.5" />
               <span>Open Live Telemetry Wall</span>
             </button>
             <button
               onClick={() => navigate('/privacy')}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-healthcare-surfaceLight hover:bg-healthcare-surfaceHover text-healthcare-textSecondary text-xs font-medium border border-healthcare-border transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-healthcare-surfaceLight hover:bg-healthcare-surfaceHover text-healthcare-textSecondary text-xs font-medium border border-healthcare-border transition-colors cursor-pointer"
             >
               <ShieldCheck className="w-3.5 h-3.5 text-teal-400" />
               <span>Privacy State</span>
@@ -62,10 +82,10 @@ export const Dashboard: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Patients */}
         <StatCard
-          title="Total Patients"
-          value={mockDashboardStats.totalPatients.toLocaleString()}
-          subtitle="Enrolled in Tele-Rehab & RPM"
-          trend={mockDashboardStats.totalPatientsChange}
+          title="Total Registered Patients"
+          value={totalPatientCount.toLocaleString()}
+          subtitle="Enrolled in PostgreSQL Registry"
+          trend="Live Database Verified"
           trendType="positive"
           accentColor="teal"
           icon={<Users className="w-5 h-5" />}
@@ -125,7 +145,7 @@ export const Dashboard: React.FC = () => {
             </div>
             <button
               onClick={() => navigate('/analytics')}
-              className="text-xs text-teal-400 hover:text-teal-300 flex items-center gap-1 font-medium"
+              className="text-xs text-teal-400 hover:text-teal-300 flex items-center gap-1 font-medium cursor-pointer"
             >
               <span>Trends</span>
               <ArrowUpRight className="w-3.5 h-3.5" />
@@ -150,7 +170,7 @@ export const Dashboard: React.FC = () => {
             </div>
             <button
               onClick={() => navigate('/analytics')}
-              className="text-xs text-teal-400 hover:text-teal-300 flex items-center gap-1 font-medium"
+              className="text-xs text-teal-400 hover:text-teal-300 flex items-center gap-1 font-medium cursor-pointer"
             >
               <span>Detailed</span>
               <ArrowUpRight className="w-3.5 h-3.5" />
@@ -160,7 +180,7 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Patient Monitoring Table Section */}
+      {/* Patient Monitoring Table Section (Live Backend Data) */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <div>
@@ -173,14 +193,88 @@ export const Dashboard: React.FC = () => {
           </div>
           <button
             onClick={() => navigate('/patients')}
-            className="text-xs font-medium text-teal-400 hover:text-teal-300 flex items-center gap-1"
+            className="text-xs font-medium text-teal-400 hover:text-teal-300 flex items-center gap-1 cursor-pointer"
           >
-            <span>View All Patients ({mockPatients.length})</span>
+            <span>View All Patients ({totalPatientCount})</span>
             <ExternalLink className="w-3.5 h-3.5" />
           </button>
         </div>
 
-        <PatientTable patients={mockPatients} />
+        {/* Table of Real Patients */}
+        <div className="w-full overflow-hidden rounded-xl border border-healthcare-border bg-healthcare-surface">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm text-healthcare-textPrimary">
+              <thead className="bg-healthcare-surfaceLight border-b border-healthcare-border text-xs uppercase text-healthcare-textSecondary">
+                <tr>
+                  <th scope="col" className="px-5 py-3.5 font-semibold">Patient &amp; ID</th>
+                  <th scope="col" className="px-4 py-3.5 font-semibold">Risk Level</th>
+                  <th scope="col" className="px-4 py-3.5 font-semibold">Age / Gender</th>
+                  <th scope="col" className="px-4 py-3.5 font-semibold">Condition</th>
+                  <th scope="col" className="px-4 py-3.5 font-semibold">Attending Doctor</th>
+                  <th scope="col" className="px-4 py-3.5 font-semibold">Status</th>
+                  <th scope="col" className="px-5 py-3.5 text-right font-semibold">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-healthcare-borderSubtle">
+                {realPatients.map((patient: BackendPatient) => {
+                  const age = calculateAge(patient.dateOfBirth);
+                  return (
+                    <tr
+                      key={patient.id}
+                      onClick={() => navigate(`/patients/${patient.id}`)}
+                      className="hover:bg-healthcare-surfaceHover/80 transition-colors cursor-pointer group"
+                    >
+                      <td className="px-5 py-4">
+                        <div className="font-semibold text-healthcare-textPrimary group-hover:text-teal-400 transition-colors">
+                          {patient.name}
+                        </div>
+                        <div className="text-xs font-mono text-healthcare-textMuted mt-0.5">
+                          {patient.patientCode}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4">
+                        <StatusBadge
+                          type="risk"
+                          value={patient.riskLevel}
+                          pulse={patient.riskLevel === 'CRITICAL'}
+                        />
+                      </td>
+                      <td className="px-4 py-4 text-xs text-healthcare-textSecondary">
+                        {age}y • {patient.gender}
+                      </td>
+                      <td className="px-4 py-4 text-xs text-healthcare-textSecondary">
+                        <div className="truncate max-w-[200px]" title={patient.condition || ''}>
+                          {patient.condition || 'Routine Telemetry'}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-xs text-healthcare-textSecondary">
+                        <div className="flex items-center gap-1.5">
+                          <User className="w-3.5 h-3.5 text-teal-400" />
+                          <span>{patient.assignedDoctor?.name || 'Unassigned'}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4">
+                        <StatusBadge type="status" value={patient.status} size="sm" />
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/patients/${patient.id}`);
+                          }}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-healthcare-surfaceLight hover:bg-teal-950 hover:text-teal-300 text-healthcare-textSecondary border border-healthcare-borderSubtle transition-colors cursor-pointer"
+                        >
+                          <span>Inspect</span>
+                          <ChevronRight className="w-3 h-3" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       {/* Recent Alerts Section */}
@@ -196,7 +290,7 @@ export const Dashboard: React.FC = () => {
           </div>
           <button
             onClick={() => navigate('/alerts')}
-            className="text-xs font-medium text-teal-400 hover:text-teal-300 flex items-center gap-1"
+            className="text-xs font-medium text-teal-400 hover:text-teal-300 flex items-center gap-1 cursor-pointer"
           >
             <span>Alert Center ({mockAlerts.length})</span>
             <ExternalLink className="w-3.5 h-3.5" />

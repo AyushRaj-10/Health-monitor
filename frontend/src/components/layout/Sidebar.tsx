@@ -12,6 +12,7 @@ import {
   LogOut,
   Cpu,
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 
 interface SidebarProps {
   onCloseMobile?: () => void;
@@ -19,6 +20,12 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ onCloseMobile }) => {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
 
   const navItems = [
     {
@@ -68,6 +75,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCloseMobile }) => {
       icon: Settings,
     },
   ];
+
+  const getInitials = (name?: string) => {
+    if (!name) return 'MD';
+    const parts = name.replace(/Dr\.|MD|RN/g, '').trim().split(' ');
+    if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    return parts[0].slice(0, 2).toUpperCase();
+  };
 
   return (
     <aside className="w-64 bg-healthcare-surface border-r border-healthcare-border flex flex-col h-full shrink-0 select-none">
@@ -137,16 +151,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCloseMobile }) => {
         </div>
         <div className="text-[11px] text-healthcare-textMuted space-y-1">
           <div className="flex justify-between">
-            <span>Active Edge Nodes:</span>
-            <span className="font-mono text-healthcare-textSecondary">3 Gateways</span>
+            <span>Session Auth:</span>
+            <span className="font-mono text-emerald-400">PostgreSQL Active</span>
           </div>
           <div className="flex justify-between">
-            <span>Avg Edge Latency:</span>
-            <span className="font-mono text-emerald-400">16 ms</span>
+            <span>Role Clearance:</span>
+            <span className="font-mono text-teal-300">{user?.role || 'DOCTOR'}</span>
           </div>
           <div className="flex justify-between">
-            <span>Bandwidth Saved:</span>
-            <span className="font-mono text-teal-300">78.4%</span>
+            <span>Edge Privacy:</span>
+            <span className="font-mono text-teal-300">ε=0.5 Bound</span>
           </div>
         </div>
       </div>
@@ -155,22 +169,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCloseMobile }) => {
       <div className="p-3 border-t border-healthcare-border flex items-center justify-between">
         <div className="flex items-center gap-2.5 overflow-hidden">
           <div className="w-8 h-8 rounded-full bg-teal-900/60 border border-teal-700/50 flex items-center justify-center text-teal-300 text-xs font-semibold shrink-0">
-            EV
+            {getInitials(user?.name)}
           </div>
           <div className="truncate">
             <div className="text-xs font-medium text-healthcare-textPrimary truncate">
-              Dr. Elena Vance
+              {user?.name || 'Dr. Elena Vance'}
             </div>
             <div className="text-[10px] text-healthcare-textMuted truncate">
-              Cardiologist (On Duty)
+              {user?.department || `${user?.role || 'Clinician'} • On Duty`}
             </div>
           </div>
         </div>
 
         <button
-          onClick={() => navigate('/login')}
-          title="Sign Out / Switch User"
-          className="p-1.5 rounded-lg text-healthcare-textMuted hover:text-rose-400 hover:bg-rose-950/40 transition-colors"
+          onClick={handleLogout}
+          title="Sign Out (Revoke Refresh Token)"
+          className="p-1.5 rounded-lg text-healthcare-textMuted hover:text-rose-400 hover:bg-rose-950/40 transition-colors cursor-pointer"
         >
           <LogOut className="w-4 h-4" />
         </button>
