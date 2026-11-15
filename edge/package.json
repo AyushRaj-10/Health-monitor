@@ -1,13 +1,20 @@
 {
   "name": "iomt-edge-node",
   "version": "1.0.0",
-  "description": "IoMT Edge Computing & Differential Privacy Preprocessing Agent",
+  "description": "IoMT Edge Computing Telemetry Simulator & Differential Privacy Preprocessing Agent",
   "type": "module",
-  "main": "src/edge-processor.js",
+  "main": "src/simulator.js",
   "scripts": {
-    "start": "node src/edge-processor.js",
-    "simulate": "node src/edge-processor.js --simulate"
+    "start": "node src/simulator.js",
+    "simulate": "node src/simulator.js",
+    "edge-processor": "node src/edge-processor.js --simulate"
   },
-  "keywords": ["iomt", "edge-computing", "differential-privacy", "health-iot"],
+  "keywords": [
+    "iomt",
+    "edge-computing",
+    "telemetry-simulator",
+    "differential-privacy",
+    "health-iot"
+  ],
   "license": "ISC"
 }

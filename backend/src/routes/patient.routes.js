@@ -6,6 +6,10 @@ import {
   updatePatient,
   deletePatient,
 } from '../controllers/patient.controller.js';
+import {
+  getPatientVitals,
+  getLatestPatientVitals,
+} from '../controllers/vitals.controller.js';
 import { authenticateToken, requireRole } from '../middlewares/auth.middleware.js';
 
 export const patientRouter = Router();
@@ -19,3 +23,7 @@ patientRouter.get('/', getPatients);
 patientRouter.get('/:id', getPatientById);
 patientRouter.patch('/:id', requireRole('ADMIN', 'DOCTOR', 'NURSE'), updatePatient);
 patientRouter.delete('/:id', deletePatient);
+
+// Patient vitals endpoints
+patientRouter.get('/:id/vitals', getPatientVitals);
+patientRouter.get('/:id/vitals/latest', getLatestPatientVitals);

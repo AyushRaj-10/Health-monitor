@@ -7,6 +7,17 @@ import {
   CreatePatientInput,
   UpdatePatientInput,
 } from '../types/patient';
+import {
+  IoMTDevice,
+  CreateDeviceInput,
+  UpdateDeviceInput,
+  SimulatorStatusResponse,
+  SimulatedDeviceAgentStatus,
+} from '../types/device';
+import {
+  PatientVitalsResponse,
+  PatientLatestVitalsResponse,
+} from '../types/vitals';
 
 // Security constraint: Store access token in memory ONLY (never in localStorage)
 let inMemoryAccessToken: string | null = null;
@@ -205,3 +216,126 @@ export async function fetchBackendHealth() {
   const response = await apiClient.get('/health');
   return response.data;
 }
+
+// ================= DEVICE API METHODS =================
+
+export interface GetDevicesParams {
+  status?: string;
+  deviceType?: string;
+  patientId?: string;
+  search?: string;
+}
+
+export async function getDevicesApi(params: GetDevicesParams = {}): Promise<IoMTDevice[]> {
+  const response = await apiClient.get<{ success: boolean; data: IoMTDevice[] }>('/devices', { params });
+  return response.data.data;
+}
+
+export async function getDeviceByIdApi(id: string): Promise<IoMTDevice> {
+  const response = await apiClient.get<{ success: boolean; data: IoMTDevice }>(`/devices/${id}`);
+  return response.data.data;
+}
+
+export async function createDeviceApi(input: CreateDeviceInput): Promise<IoMTDevice> {
+  const response = await apiClient.post<{ success: boolean; data: IoMTDevice }>('/devices', input);
+  return response.data.data;
+}
+
+export async function updateDeviceApi(id: string, input: UpdateDeviceInput): Promise<IoMTDevice> {
+  const response = await apiClient.patch<{ success: boolean; data: IoMTDevice }>(`/devices/${id}`, input);
+  return response.data.data;
+}
+
+export async function deleteDeviceApi(id: string): Promise<void> {
+  await apiClient.delete(`/devices/${id}`);
+}
+
+// ================= VITALS API METHODS =================
+
+export interface GetPatientVitalsParams {
+  limit?: number;
+  startTime?: string;
+  endTime?: string;
+  scenario?: string;
+}
+
+export async function getPatientVitalsApi(
+  patientId: string,
+  params: GetPatientVitalsParams = {}
+): Promise<PatientVitalsResponse> {
+  const response = await apiClient.get<PatientVitalsResponse>(
+    `/patients/${patientId}/vitals`,
+    { params }
+  );
+  return response.data;
+}
+
+export async function getLatestPatientVitalsApi(
+  patientId: string
+): Promise<PatientLatestVitalsResponse> {
+  const response = await apiClient.get<PatientLatestVitalsResponse>(
+    `/patients/${patientId}/vitals/latest`
+  );
+  return response.data;
+}
+
+// ================= SIMULATOR CONTROL API METHODS =================
+
+export async function getSimulatorStatusApi(): Promise<SimulatorStatusResponse> {
+  const response = await apiClient.get<{ success: boolean; data: SimulatorStatusResponse }>(
+    '/simulator/status'
+  );
+  return response.data.data;
+}
+
+export async function startSimulatorAllApi(): Promise<SimulatorStatusResponse> {
+  const response = await apiClient.post<{ success: boolean; data: SimulatorStatusResponse }>(
+    '/simulator/start-all'
+  );
+  return response.data.data;
+}
+
+export async function stopSimulatorAllApi(): Promise<SimulatorStatusResponse> {
+  const response = await apiClient.post<{ success: boolean; data: SimulatorStatusResponse }>(
+    '/simulator/stop-all'
+  );
+  return response.data.data;
+}
+
+export async function startSimulatorDeviceApi(deviceCode: string): Promise<SimulatedDeviceAgentStatus> {
+  const response = await apiClient.post<{ success: boolean; data: SimulatedDeviceAgentStatus }>(
+    `/simulator/device/${deviceCode}/start`
+  );
+  return response.data.data;
+}
+
+export async function stopSimulatorDeviceApi(deviceCode: string): Promise<SimulatedDeviceAgentStatus> {
+  const response = await apiClient.post<{ success: boolean; data: SimulatedDeviceAgentStatus }>(
+    `/simulator/device/${deviceCode}/stop`
+  );
+  return response.data.data;
+}
+
+export async function setSimulatorScenarioApi(
+  deviceCode: string,
+  scenario: string,
+  autoStart = true
+): Promise<SimulatedDeviceAgentStatus> {
+  const response = await apiClient.post<{ success: boolean; data: SimulatedDeviceAgentStatus }>(
+    `/simulator/device/${deviceCode}/scenario`,
+    { scenario, autoStart }
+  );
+  return response.data.data;
+}
+
+export async function setSimulatorIntervalApi(
+  deviceCode: string,
+  intervalMs: number
+): Promise<SimulatedDeviceAgentStatus> {
+  const response = await apiClient.post<{ success: boolean; data: SimulatedDeviceAgentStatus }>(
+    `/simulator/device/${deviceCode}/interval`,
+    { intervalMs }
+  );
+  return response.data.data;
+}
+

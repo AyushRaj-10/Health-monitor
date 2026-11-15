@@ -32,6 +32,7 @@ enum DeviceType {
   PULSE_OXIMETER
   BP_CUFF
   EDGE_GATEWAY
+  MULTI_PARAM_MONITOR
 }
 
 enum DeviceStatus {
@@ -79,29 +80,78 @@ model RefreshToken {
 }
 
 model Patient {
-  id                 String        @id @default(uuid())
-  patientCode        String        @unique
+  id                 String         @id @default(uuid())
+  patientCode        String         @unique
   name               String
   dateOfBirth        DateTime
   gender             String
   contactInformation String?
   assignedDoctorId   String?
-  assignedDoctor     User?         @relation("DoctorPatients", fields: [assignedDoctorId], references: [id], onDelete: SetNull)
+  assignedDoctor     User?          @relation("DoctorPatients", fields: [assignedDoctorId], references: [id], onDelete: SetNull)
   medicalHistory     String?
-  condition          String?       @default("Under Observation")
-  riskLevel          RiskLevel     @default(LOW)
+  condition          String?        @default("Under Observation")
+  riskLevel          RiskLevel      @default(LOW)
   roomOrLocation     String?
-  status             PatientStatus @default(ACTIVE)
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  status             PatientStatus  @default(ACTIVE)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
 
-  devices            EdgeDevice[]
+  devices            Device[]       @relation("PatientDevices")
+  vitalReadings      VitalReading[] @relation("PatientVitals")
+  edgeDevices        EdgeDevice[]
   vitals             VitalRecord[]
   alerts             Alert[]
 
   @@index([patientCode])
   @@index([name])
   @@index([assignedDoctorId])
+}
+
+model Device {
+  id              String         @id @default(uuid())
+  deviceCode      String         @unique
+  name            String
+  deviceType      DeviceType     @default(SMARTWATCH)
+  status          DeviceStatus   @default(ONLINE)
+  batteryLevel    Int            @default(100)
+  firmwareVersion String?        @default("v2.4.1-sim")
+  edgeNodeId      String?        @default("EDGE-GATEWAY-RPI4-01")
+  apiKey          String         @unique
+  isSimulated     Boolean        @default(true)
+  lastHeartbeat   DateTime       @default(now())
+
+  patientId       String?
+  patient         Patient?       @relation("PatientDevices", fields: [patientId], references: [id], onDelete: SetNull)
+
+  readings        VitalReading[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([patientId])
+  @@index([status])
+  @@index([apiKey])
+}
+
+model VitalReading {
+  id               String       @id @default(uuid())
+  patientId        String
+  patient          Patient      @relation("PatientVitals", fields: [patientId], references: [id], onDelete: Cascade)
+  deviceId         String
+  device           Device       @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  heartRate        Float        // bpm
+  spo2             Float        // %
+  bloodPressureSys Float        // mmHg
+  bloodPressureDia Float        // mmHg
+  temperature      Float        // °C
+  respiratoryRate  Float?       // rpm
+  isSimulated      Boolean      @default(true)
+  scenario         String       @default("NORMAL")
+  recordedAt       DateTime     @default(now())
+  createdAt        DateTime     @default(now())
+
+  @@index([patientId, recordedAt])
+  @@index([deviceId, recordedAt])
+  @@index([recordedAt])
 }
 
 model EdgeDevice {
