@@ -1,35 +1,103 @@
 import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Seeding database with initial IoMT & Patient foundation data...');
+  console.log('🌱 Seeding PostgreSQL database for Stage 2 Authentication & Patient Management...');
 
-  // Upsert Clinician User
-  const doctor = await prisma.user.upsert({
-    where: { email: 'dr.elena.vance@iomt-health.org' },
-    update: {},
+  const salt = await bcrypt.genSalt(10);
+  const adminPasswordHash = await bcrypt.hash('Admin123!', salt);
+  const doctorPasswordHash = await bcrypt.hash('Doctor123!', salt);
+  const nursePasswordHash = await bcrypt.hash('Nurse123!', salt);
+
+  // 1. Seed Administrator
+  const admin = await prisma.user.upsert({
+    where: { email: 'admin@iomt-health.org' },
+    update: {
+      passwordHash: adminPasswordHash,
+      name: 'Dr. Gregory House, MD',
+      role: 'ADMIN',
+      isActive: true,
+      department: 'Clinical Administration & Informatics',
+    },
     create: {
-      email: 'dr.elena.vance@iomt-health.org',
-      fullName: 'Dr. Elena Vance, MD',
+      email: 'admin@iomt-health.org',
+      name: 'Dr. Gregory House, MD',
+      passwordHash: adminPasswordHash,
+      role: 'ADMIN',
+      isActive: true,
+      department: 'Clinical Administration & Informatics',
+    },
+  });
+
+  // 2. Seed Attending Cardiologist (Doctor)
+  const doctorElena = await prisma.user.upsert({
+    where: { email: 'dr.vance@iomt-health.org' },
+    update: {
+      passwordHash: doctorPasswordHash,
+      name: 'Dr. Elena Vance, MD',
       role: 'DOCTOR',
+      isActive: true,
+      department: 'Cardiology & Intensive Remote Monitoring',
+    },
+    create: {
+      email: 'dr.vance@iomt-health.org',
+      name: 'Dr. Elena Vance, MD',
+      passwordHash: doctorPasswordHash,
+      role: 'DOCTOR',
+      isActive: true,
       department: 'Cardiology & Intensive Remote Monitoring',
     },
   });
 
-  // Upsert Privacy Officer
-  await prisma.user.upsert({
-    where: { email: 'privacy.officer@iomt-health.org' },
-    update: {},
+  // 3. Seed Second Doctor
+  const doctorAris = await prisma.user.upsert({
+    where: { email: 'dr.thorne@iomt-health.org' },
+    update: {
+      passwordHash: doctorPasswordHash,
+      name: 'Dr. Aris Thorne, MD',
+      role: 'DOCTOR',
+      isActive: true,
+      department: 'Internal Medicine & Remote Rehab',
+    },
     create: {
-      email: 'privacy.officer@iomt-health.org',
-      fullName: 'Marcus Sterling, CIPP/E',
-      role: 'PRIVACY_OFFICER',
-      department: 'IoMT Data Governance & Compliance',
+      email: 'dr.thorne@iomt-health.org',
+      name: 'Dr. Aris Thorne, MD',
+      passwordHash: doctorPasswordHash,
+      role: 'DOCTOR',
+      isActive: true,
+      department: 'Internal Medicine & Remote Rehab',
     },
   });
 
-  // Initial Privacy Config
+  // 4. Seed Staff Nurse
+  const nurseSarah = await prisma.user.upsert({
+    where: { email: 'nurse.davis@iomt-health.org' },
+    update: {
+      passwordHash: nursePasswordHash,
+      name: 'Sarah Davis, RN',
+      role: 'NURSE',
+      isActive: true,
+      department: 'Tele-ICU Monitoring Ward',
+    },
+    create: {
+      email: 'nurse.davis@iomt-health.org',
+      name: 'Sarah Davis, RN',
+      passwordHash: nursePasswordHash,
+      role: 'NURSE',
+      isActive: true,
+      department: 'Tele-ICU Monitoring Ward',
+    },
+  });
+
+  console.log('✅ Users seeded:');
+  console.log('   - Admin:   admin@iomt-health.org (Password: Admin123!)');
+  console.log('   - Doctor:  dr.vance@iomt-health.org (Password: Doctor123!)');
+  console.log('   - Doctor:  dr.thorne@iomt-health.org (Password: Doctor123!)');
+  console.log('   - Nurse:   nurse.davis@iomt-health.org (Password: Nurse123!)');
+
+  // 5. Initial Privacy Config
   const existingConfig = await prisma.privacyConfig.findFirst();
   if (!existingConfig) {
     await prisma.privacyConfig.create({
@@ -43,67 +111,122 @@ async function main() {
     });
   }
 
-  // Initial Sample Patients
-  const patient1 = await prisma.patient.upsert({
-    where: { medicalRecordNumber: 'MRN-84920' },
-    update: {},
-    create: {
-      medicalRecordNumber: 'MRN-84920',
-      fullName: 'Arthur Pendelton',
-      age: 68,
+  // 6. Seed Initial Patients
+  const patientsData = [
+    {
+      patientCode: 'PAT-84920',
+      name: 'Arthur Pendelton',
+      dateOfBirth: new Date('1958-04-12'),
       gender: 'Male',
+      contactInformation: '+1 (555) 234-8901 • arthur.pendelton@example.com',
+      assignedDoctorId: doctorElena.id,
       condition: 'Chronic Heart Failure (NYHA Class III)',
       riskLevel: 'CRITICAL',
-      roomOrLocation: 'Home - Ward Telemetry Zone A',
+      roomOrLocation: 'Home Care - Ward Telemetry Zone A',
       status: 'ACTIVE',
-      assignedDoctorId: doctor.id,
+      medicalHistory: 'Diagnosed with ischemic cardiomyopathy in 2021. Bilateral leg edema managed with furosemide. Implanted biventricular pacemaker. Allergic to penicillin.',
     },
-  });
-
-  const patient2 = await prisma.patient.upsert({
-    where: { medicalRecordNumber: 'MRN-55104' },
-    update: {},
-    create: {
-      medicalRecordNumber: 'MRN-55104',
-      fullName: 'Beatrice Chen',
-      age: 54,
+    {
+      patientCode: 'PAT-55104',
+      name: 'Beatrice Chen',
+      dateOfBirth: new Date('1972-08-25'),
       gender: 'Female',
+      contactInformation: '+1 (555) 345-6712 • beatrice.chen@example.com',
+      assignedDoctorId: doctorElena.id,
       condition: 'Post-CABG Cardiac Recovery',
       riskLevel: 'HIGH',
-      roomOrLocation: 'Home - Ward Telemetry Zone B',
+      roomOrLocation: 'Home Care - Ward Telemetry Zone B',
       status: 'ACTIVE',
-      assignedDoctorId: doctor.id,
+      medicalHistory: 'Coronary artery bypass graft (x3) performed 4 weeks ago. Strict remote cardiac rehab monitoring. Mild ambulatory oxygen desaturation on exertion.',
     },
-  });
-
-  // Edge Devices
-  const device1 = await prisma.edgeDevice.upsert({
-    where: { macAddress: '00:1B:44:11:3A:B7' },
-    update: {},
-    create: {
-      deviceName: 'EdgeGate-BioPatch-X1',
-      deviceType: 'ECG_PATCH',
-      macAddress: '00:1B:44:11:3A:B7',
-      edgeNodeId: 'EDGE-NODE-RPI4-01',
-      status: 'ONLINE',
-      batteryLevel: 88,
-      patientId: patient1.id,
+    {
+      patientCode: 'PAT-91244',
+      name: 'Marcus Aurelius Sterling',
+      dateOfBirth: new Date('1954-11-03'),
+      gender: 'Male',
+      contactInformation: '+1 (555) 456-7890 • m.sterling@example.com',
+      assignedDoctorId: doctorAris.id,
+      condition: 'Atrial Fibrillation & Hypertension',
+      riskLevel: 'CRITICAL',
+      roomOrLocation: 'Specialized Tele-ICU Ward 3',
+      status: 'ACTIVE',
+      medicalHistory: 'Permanent atrial fibrillation on direct oral anticoagulants. Resistant essential hypertension. Monitored with Holter wearable sensor.',
     },
-  });
-
-  // Sample Audit Log
-  await prisma.privacyAuditLog.create({
-    data: {
-      action: 'SYSTEM_BOOTSTRAP',
-      userId: doctor.id,
-      patientId: patient1.id,
-      edgeNodeId: 'EDGE-NODE-RPI4-01',
-      details: 'Differential Privacy noise calibrated: ε=0.5, Laplace mechanism initialized on Edge Node 01.',
-      ipAddress: '127.0.0.1',
+    {
+      patientCode: 'PAT-33019',
+      name: 'Sophia Rodriguez',
+      dateOfBirth: new Date('1985-02-18'),
+      gender: 'Female',
+      contactInformation: '+1 (555) 567-8901 • s.rodriguez@example.com',
+      assignedDoctorId: doctorElena.id,
+      condition: 'Post-Viral Myocarditis Monitoring',
+      riskLevel: 'MODERATE',
+      roomOrLocation: 'Outpatient Tele-Monitoring Unit',
+      status: 'ACTIVE',
+      medicalHistory: 'Viral myocarditis post-coxsackie infection. Left ventricular ejection fraction restored to 52%. Continuous wearable smartwatch biometrics.',
     },
-  });
+    {
+      patientCode: 'PAT-72418',
+      name: 'David K. O’Connor',
+      dateOfBirth: new Date('1963-07-30'),
+      gender: 'Male',
+      contactInformation: '+1 (555) 678-9012 • david.oconnor@example.com',
+      assignedDoctorId: doctorAris.id,
+      condition: 'COPD with Cor Pulmonale',
+      riskLevel: 'HIGH',
+      roomOrLocation: 'Home Care - Ward Telemetry Zone C',
+      status: 'ACTIVE',
+      medicalHistory: 'Stage 3 COPD with secondary pulmonary arterial hypertension. Baseline SpO2 91-93%. Nocturnal supplemental oxygen titration.',
+    },
+    {
+      patientCode: 'PAT-18452',
+      name: 'Evelyn Vasquez',
+      dateOfBirth: new Date('1997-09-14'),
+      gender: 'Female',
+      contactInformation: '+1 (555) 789-0123 • evelyn.v@example.com',
+      assignedDoctorId: doctorAris.id,
+      condition: 'Gestational Arrhythmia Telemetry',
+      riskLevel: 'LOW',
+      roomOrLocation: 'Remote Maternal Clinic',
+      status: 'ACTIVE',
+      medicalHistory: '28-week primigravida experiencing benign premature ventricular contractions. Ambulatory telemetry for maternal-fetal reassurance.',
+    },
+    {
+      patientCode: 'PAT-60911',
+      name: 'Harold J. Finch',
+      dateOfBirth: new Date('1947-12-05'),
+      gender: 'Male',
+      contactInformation: '+1 (555) 890-1234 • harold.finch@example.com',
+      assignedDoctorId: doctorElena.id,
+      condition: 'Pacemaker Implantation Follow-up',
+      riskLevel: 'MODERATE',
+      roomOrLocation: 'Cardiac Step-Down Telemetry',
+      status: 'ACTIVE',
+      medicalHistory: 'Dual-chamber pacemaker inserted October 2026 for sick sinus syndrome. Remote RF interrogator transmitting edge-aggregated pacing telemetry.',
+    },
+  ];
 
-  console.log('✅ Seed completed successfully.');
+  for (const p of patientsData) {
+    await prisma.patient.upsert({
+      where: { patientCode: p.patientCode },
+      update: {
+        name: p.name,
+        dateOfBirth: p.dateOfBirth,
+        gender: p.gender,
+        contactInformation: p.contactInformation,
+        assignedDoctorId: p.assignedDoctorId,
+        condition: p.condition,
+        riskLevel: p.riskLevel,
+        roomOrLocation: p.roomOrLocation,
+        status: p.status,
+        medicalHistory: p.medicalHistory,
+      },
+      create: p,
+    });
+  }
+
+  console.log(`✅ Seeded ${patientsData.length} initial clinical patient records.`);
+  console.log('🎉 Seed complete.');
 }
 
 main()
