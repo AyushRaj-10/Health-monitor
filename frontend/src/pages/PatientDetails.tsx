@@ -32,6 +32,7 @@ import {
   deletePatientApi,
   getPatientVitalsApi,
   getLatestPatientVitalsApi,
+  acknowledgeAlertApi,
 } from '../services/api';
 import { VitalTimeSeriesPoint } from '../types';
 import { VitalReading } from '../types/vitals';
@@ -152,10 +153,20 @@ export const PatientDetails: React.FC = () => {
       }
     };
 
-    // 3. Real-time alert listener
+    // 3. Real-time alert listeners
     const handleNewAlert = (payload: any) => {
       if (payload.patientId === id && payload.alert) {
         setActiveAlert(payload.alert);
+      }
+    };
+
+    const handleAlertUpdate = (payload: any) => {
+      if (payload.patientId === id) {
+        if (payload.alert?.status === 'RESOLVED' || payload.alert?.isResolved) {
+          setActiveAlert(null);
+        } else if (payload.alert) {
+          setActiveAlert(payload.alert);
+        }
       }
     };
 
@@ -172,12 +183,14 @@ export const PatientDetails: React.FC = () => {
 
     socket.on('vitals:update', handleVitalsUpdate);
     socket.on('alert:new', handleNewAlert);
+    socket.on('alert:update', handleAlertUpdate);
     socket.on('monitoring:status', handleMonitoringStatus);
 
     return () => {
       unsubscribePatient(id);
       socket.off('vitals:update', handleVitalsUpdate);
       socket.off('alert:new', handleNewAlert);
+      socket.off('alert:update', handleAlertUpdate);
       socket.off('monitoring:status', handleMonitoringStatus);
     };
   }, [id, socket, isConnected]);
@@ -287,6 +300,23 @@ export const PatientDetails: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center space-x-2">
+            {!activeAlert.isAcknowledged && (
+              <button
+                onClick={async () => {
+                  try {
+                    await acknowledgeAlertApi(activeAlert.id);
+                    setActiveAlert((prev: any) =>
+                      prev ? { ...prev, isAcknowledged: true, status: 'ACKNOWLEDGED' } : null
+                    );
+                  } catch (e) {
+                    console.error('Failed to acknowledge alert', e);
+                  }
+                }}
+                className="px-3 py-1 text-xs font-semibold rounded-lg bg-teal-600 hover:bg-teal-500 text-white transition-colors"
+              >
+                Acknowledge
+              </button>
+            )}
             <Link
               to="/alerts"
               className="px-3 py-1 text-xs font-semibold rounded-lg bg-rose-500 text-white hover:bg-rose-600 transition-colors"

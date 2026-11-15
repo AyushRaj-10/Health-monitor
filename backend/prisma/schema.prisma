@@ -47,6 +47,12 @@ enum AlertSeverity {
   CRITICAL
 }
 
+enum AlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
 model User {
   id            String            @id @default(uuid())
   name          String
@@ -194,26 +200,37 @@ model VitalRecord {
 }
 
 model Alert {
-  id             String        @id @default(uuid())
-  patientId      String
-  patient        Patient       @relation(fields: [patientId], references: [id])
-  deviceId       String?
-  device         Device?       @relation(fields: [deviceId], references: [id], onDelete: SetNull)
-  edgeDeviceId   String?
-  edgeDevice     EdgeDevice?   @relation(fields: [edgeDeviceId], references: [id])
-  vitalType      String
-  severity       AlertSeverity @default(WARNING)
-  message        String
-  currentValue   String?
-  thresholdValue String?
-  isAcknowledged Boolean       @default(false)
-  acknowledgedBy String?
-  acknowledgedAt DateTime?
-  isResolved     Boolean       @default(false)
-  resolvedAt     DateTime?
-  createdAt      DateTime      @default(now())
+  id              String        @id @default(uuid())
+  patientId       String
+  patient         Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  deviceId        String?
+  device          Device?       @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  edgeDeviceId    String?
+  edgeDevice      EdgeDevice?   @relation(fields: [edgeDeviceId], references: [id])
+  vitalType       String        @default("HEART_RATE")
+  alertType       String        @default("VITAL_ANOMALY")
+  severity        AlertSeverity @default(WARNING)
+  message         String
+  source          String        @default("EDGE_GATEWAY")
+  status          AlertStatus   @default(OPEN)
+  triggeredAt     DateTime      @default(now())
+  acknowledgedAt  DateTime?
+  resolvedAt      DateTime?
+  acknowledgedBy  String?
+  resolvedBy      String?
+  resolutionNotes String?
+  currentValue    String?
+  thresholdValue  String?
+  isAcknowledged  Boolean       @default(false)
+  isResolved      Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @default(now()) @updatedAt
 
+  @@index([patientId, status])
   @@index([patientId, severity])
+  @@index([status])
+  @@index([severity])
+  @@index([triggeredAt])
   @@index([deviceId])
 }
 
