@@ -11,6 +11,7 @@ import {
   Settings,
   LogOut,
   Cpu,
+  Cloud,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -43,6 +44,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCloseMobile }) => {
       to: '/devices',
       icon: Cpu,
       badge: 'Edge',
+      badgeColor: 'bg-emerald-950 text-emerald-300 border-emerald-800/60',
+    },
+    {
+      label: 'Edge vs Cloud',
+      to: '/edge-comparison',
+      icon: Cloud,
+      badge: 'Stage 4',
       badgeColor: 'bg-emerald-950 text-emerald-300 border-emerald-800/60',
     },
     {

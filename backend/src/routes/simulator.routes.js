@@ -7,12 +7,19 @@ export const simulatorRouter = Router();
 // Staff authentication required to control simulator
 simulatorRouter.use(authenticateToken);
 
-// Status check
+// Status & Metrics checks
 simulatorRouter.get('/status', getSimulatorStatus);
+simulatorRouter.get('/metrics', forwardSimulatorAction);
+simulatorRouter.get('/threshold-profiles', forwardSimulatorAction);
 
-// All commands forwarded to edge node
+// Global & Per-Device Controls
 simulatorRouter.post('/start-all', forwardSimulatorAction);
 simulatorRouter.post('/stop-all', forwardSimulatorAction);
+simulatorRouter.post('/policy', forwardSimulatorAction);
+simulatorRouter.post('/network-toggle', forwardSimulatorAction);
+simulatorRouter.post('/thresholds', forwardSimulatorAction);
+simulatorRouter.post('/sync-offline', forwardSimulatorAction);
+
 simulatorRouter.post('/device/:code/start', forwardSimulatorAction);
 simulatorRouter.post('/device/:code/stop', forwardSimulatorAction);
 simulatorRouter.post('/device/:code/scenario', forwardSimulatorAction);
