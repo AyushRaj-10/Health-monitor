@@ -1,0 +1,163 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  DOCTOR
+  NURSE
+  PRIVACY_OFFICER
+  ADMIN
+}
+
+enum RiskLevel {
+  LOW
+  MODERATE
+  HIGH
+  CRITICAL
+}
+
+enum PatientStatus {
+  ACTIVE
+  DISCHARGED
+  OBSERVATION
+}
+
+enum DeviceType {
+  SMARTWATCH
+  ECG_PATCH
+  PULSE_OXIMETER
+  BP_CUFF
+  EDGE_GATEWAY
+}
+
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+  DEGRADED
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+model User {
+  id           String        @id @default(uuid())
+  email        String        @unique
+  fullName     String
+  role         Role          @default(DOCTOR)
+  department   String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  patients     Patient[]     @relation("DoctorPatients")
+  auditLogs    PrivacyAuditLog[]
+}
+
+model Patient {
+  id                  String        @id @default(uuid())
+  medicalRecordNumber String        @unique
+  fullName            String
+  age                 Int
+  gender              String
+  condition           String
+  riskLevel           RiskLevel     @default(LOW)
+  roomOrLocation      String?
+  status              PatientStatus @default(ACTIVE)
+  assignedDoctorId    String?
+  assignedDoctor      User?         @relation("DoctorPatients", fields: [assignedDoctorId], references: [id])
+  devices             EdgeDevice[]
+  vitals              VitalRecord[]
+  alerts              Alert[]
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+}
+
+model EdgeDevice {
+  id           String       @id @default(uuid())
+  deviceName   String
+  deviceType   DeviceType   @default(SMARTWATCH)
+  macAddress   String       @unique
+  edgeNodeId   String
+  status       DeviceStatus @default(ONLINE)
+  batteryLevel Int          @default(100)
+  lastHeartbeat DateTime    @default(now())
+  patientId    String?
+  patient      Patient?     @relation(fields: [patientId], references: [id])
+  vitals       VitalRecord[]
+  alerts       Alert[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+model VitalRecord {
+  id                  String      @id @default(uuid())
+  patientId           String
+  patient             Patient     @relation(fields: [patientId], references: [id])
+  edgeDeviceId        String?
+  edgeDevice          EdgeDevice? @relation(fields: [edgeDeviceId], references: [id])
+  heartRate           Int
+  spo2                Int
+  bloodPressureSys    Int?
+  bloodPressureDia    Int?
+  temperature         Float?
+  respiratoryRate     Int?
+  isEdgeFiltered      Boolean     @default(true)
+  noiseAdded          Float       @default(0.0)
+  epsilonBudgetUsed   Float       @default(0.01)
+  recordedAt          DateTime    @default(now())
+  createdAt           DateTime    @default(now())
+
+  @@index([patientId, recordedAt])
+}
+
+model Alert {
+  id             String        @id @default(uuid())
+  patientId      String
+  patient        Patient       @relation(fields: [patientId], references: [id])
+  edgeDeviceId   String?
+  edgeDevice     EdgeDevice?   @relation(fields: [edgeDeviceId], references: [id])
+  vitalType      String
+  severity       AlertSeverity @default(WARNING)
+  message        String
+  isAcknowledged Boolean       @default(false)
+  acknowledgedBy String?
+  acknowledgedAt DateTime?
+  isResolved     Boolean       @default(false)
+  resolvedAt     DateTime?
+  createdAt      DateTime      @default(now())
+
+  @@index([patientId, severity])
+}
+
+model PrivacyAuditLog {
+  id         String   @id @default(uuid())
+  action     String
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  patientId  String?
+  edgeNodeId String?
+  details    String
+  ipAddress  String?
+  timestamp  DateTime @default(now())
+
+  @@index([timestamp])
+}
+
+model PrivacyConfig {
+  id                         String   @id @default(uuid())
+  differentialPrivacyEnabled Boolean  @default(true)
+  epsilon                    Float    @default(0.5)
+  delta                      Float    @default(0.00001)
+  anonymizationLevel         String   @default("K-Anonymity (k=5)")
+  edgeBandwidthSavingPercent Float    @default(74.5)
+  updatedAt                  DateTime @updatedAt
+}

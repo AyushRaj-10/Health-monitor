@@ -1,0 +1,30 @@
+{
+  "edgeNodeId": "EDGE-GATEWAY-RPI4-01",
+  "location": "Ward Telemetry Hub - Sector 4",
+  "firmwareVersion": "2.4.1-privacy-hardened",
+  "encryption": {
+    "algorithm": "AES-256-GCM",
+    "keyRotationHours": 24,
+    "tlsVersion": "TLSv1.3"
+  },
+  "privacyParameters": {
+    "differentialPrivacyEnabled": true,
+    "mechanism": "Laplace",
+    "epsilon": 0.5,
+    "delta": 0.00001,
+    "sensitivity": 1.0,
+    "kAnonymity": 5
+  },
+  "edgeFiltering": {
+    "enabled": true,
+    "compressionRatioTarget": 0.75,
+    "normalVitalTransmissionIntervalSeconds": 60,
+    "anomalyImmediateTransmission": true
+  },
+  "samplingRatesHz": {
+    "ecg": 250,
+    "photoplethysmographySpO2": 100,
+    "temperature": 1,
+    "bloodPressure": 0.016
+  }
+}

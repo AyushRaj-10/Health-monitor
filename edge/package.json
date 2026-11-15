@@ -1,0 +1,13 @@
+{
+  "name": "iomt-edge-node",
+  "version": "1.0.0",
+  "description": "IoMT Edge Computing & Differential Privacy Preprocessing Agent",
+  "type": "module",
+  "main": "src/edge-processor.js",
+  "scripts": {
+    "start": "node src/edge-processor.js",
+    "simulate": "node src/edge-processor.js --simulate"
+  },
+  "keywords": ["iomt", "edge-computing", "differential-privacy", "health-iot"],
+  "license": "ISC"
+}
