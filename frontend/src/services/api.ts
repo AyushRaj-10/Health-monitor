@@ -20,9 +20,18 @@ import {
 } from '../types/vitals';
 import {
   EdgeMetricsResponse,
-  BackendAlert,
   ThresholdProfile,
 } from '../types/edge';
+import {
+  Alert,
+  GetAlertsParams,
+  GetAlertsResponse,
+} from '../types/alert';
+import {
+  AnalyticsOverviewData,
+  PatientAnalyticsResponse,
+  PatientVitalsAnalyticsResponse,
+} from '../types/analytics';
 
 // Security constraint: Store access token in memory ONLY (never in localStorage)
 let inMemoryAccessToken: string | null = null;
@@ -406,43 +415,73 @@ export async function syncOfflineBuffersApi(): Promise<{ success: boolean; messa
 
 // ================= ALERTS API METHODS =================
 
-export interface GetAlertsParams {
-  severity?: string;
-  isResolved?: boolean;
-  patientId?: string;
-  limit?: number;
-  page?: number;
-}
-
-export interface GetAlertsResponse {
-  success: boolean;
-  data: BackendAlert[];
-  meta: {
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
-    unresolvedCount: number;
-    criticalCount: number;
-  };
-}
+export type { GetAlertsParams, GetAlertsResponse, Alert };
 
 export async function getAlertsApi(params: GetAlertsParams = {}): Promise<GetAlertsResponse> {
   const response = await apiClient.get<GetAlertsResponse>('/alerts', { params });
   return response.data;
 }
 
-export async function acknowledgeAlertApi(id: string): Promise<BackendAlert> {
-  const response = await apiClient.patch<{ success: boolean; data: BackendAlert }>(
+export async function getAlertByIdApi(id: string): Promise<Alert> {
+  const response = await apiClient.get<{ success: boolean; data: Alert }>(`/alerts/${id}`);
+  return response.data.data;
+}
+
+export async function acknowledgeAlertApi(id: string): Promise<Alert> {
+  const response = await apiClient.patch<{ success: boolean; data: Alert }>(
     `/alerts/${id}/acknowledge`
   );
   return response.data.data;
 }
 
-export async function resolveAlertApi(id: string): Promise<BackendAlert> {
-  const response = await apiClient.patch<{ success: boolean; data: BackendAlert }>(
-    `/alerts/${id}/resolve`
+export async function resolveAlertApi(id: string, resolutionNotes?: string): Promise<Alert> {
+  const response = await apiClient.patch<{ success: boolean; data: Alert }>(
+    `/alerts/${id}/resolve`,
+    { resolutionNotes }
   );
   return response.data.data;
 }
+
+// ================= ANALYTICS API METHODS =================
+
+export async function getAnalyticsOverviewApi(params: {
+  timeRange?: string;
+  startDate?: string;
+  endDate?: string;
+} = {}): Promise<AnalyticsOverviewData> {
+  const response = await apiClient.get<{ success: boolean; data: AnalyticsOverviewData }>(
+    '/analytics/overview',
+    { params }
+  );
+  return response.data.data;
+}
+
+export async function getPatientAnalyticsApi(
+  id: string,
+  params: { timeRange?: string; startDate?: string; endDate?: string } = {}
+): Promise<PatientAnalyticsResponse> {
+  const response = await apiClient.get<{ success: boolean; data: PatientAnalyticsResponse }>(
+    `/analytics/patients/${id}`,
+    { params }
+  );
+  return response.data.data;
+}
+
+export async function getPatientVitalsAnalyticsApi(
+  patientId: string,
+  params: {
+    bucket?: string;
+    timeRange?: string;
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+  } = {}
+): Promise<PatientVitalsAnalyticsResponse> {
+  const response = await apiClient.get<{
+    success: boolean;
+    data: PatientVitalsAnalyticsResponse;
+  }>(`/analytics/vitals/${patientId}`, { params });
+  return response.data.data;
+}
+
 

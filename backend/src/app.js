@@ -11,6 +11,7 @@ import { deviceRouter } from './routes/device.routes.js';
 import { vitalsRouter } from './routes/vitals.routes.js';
 import { simulatorRouter } from './routes/simulator.routes.js';
 import { alertRouter } from './routes/alert.routes.js';
+import { analyticsRouter } from './routes/analytics.routes.js';
 import { notFoundHandler, errorHandler } from './middlewares/error.middleware.js';
 
 export const app = express();
@@ -62,6 +63,7 @@ app.use('/api/devices', deviceRouter);
 app.use('/api/vitals', vitalsRouter);
 app.use('/api/simulator', simulatorRouter);
 app.use('/api/alerts', alertRouter);
+app.use('/api/analytics', analyticsRouter);
 
 // 404 & Centralized Error Handling
 app.use(notFoundHandler);
