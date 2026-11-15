@@ -1,12 +1,20 @@
+import http from 'http';
 import { app } from './app.js';
 import { config } from './config/env.js';
 import { prisma, checkDatabaseConnection } from './config/prisma.js';
+import { initSocketIO } from './services/socket.service.js';
 
-const server = app.listen(config.port, async () => {
+const httpServer = http.createServer(app);
+
+// Initialize Socket.IO real-time engine
+initSocketIO(httpServer);
+
+const server = httpServer.listen(config.port, async () => {
   console.log(`\n======================================================`);
   console.log(`🏥 IoMT Privacy-Aware RPM Backend Server Started`);
   console.log(`📡 URL: http://localhost:${config.port}`);
   console.log(`🩺 Health Endpoint: http://localhost:${config.port}/api/health`);
+  console.log(`⚡ WebSocket Engine: Socket.IO initialized`);
   console.log(`🌱 Environment: ${config.nodeEnv}`);
   console.log(`======================================================\n`);
 

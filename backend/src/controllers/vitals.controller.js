@@ -1,5 +1,6 @@
 import { prisma } from '../config/prisma.js';
 import { ingestVitalsSchema } from '../validations/vitals.validation.js';
+import { emitVitalsUpdate, emitDeviceStatus } from '../services/socket.service.js';
 
 /**
  * POST /api/vitals/ingest
@@ -126,6 +127,30 @@ export async function ingestVitals(req, res, next) {
         lastHeartbeat: new Date(),
         status: 'ONLINE',
       },
+    });
+
+    // 7. Emit real-time WebSocket event to authorized patient room (strictly after persistence)
+    const latestReading = readingsToInsert[readingsToInsert.length - 1];
+    emitVitalsUpdate(patient.id, {
+      reading: latestReading,
+      patient: {
+        id: patient.id,
+        name: patient.name,
+        patientCode: patient.patientCode,
+        riskLevel: patient.riskLevel,
+      },
+      device: {
+        id: device.id,
+        deviceCode: device.deviceCode,
+        name: device.name,
+        deviceType: device.deviceType,
+      },
+    });
+
+    emitDeviceStatus(device.id, patient.id, {
+      status: 'ONLINE',
+      batteryLevel: device.batteryLevel,
+      lastHeartbeat: new Date(),
     });
 
     res.status(201).json({
