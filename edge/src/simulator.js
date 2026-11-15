@@ -1,10 +1,9 @@
 /**
- * IoMT Edge Device Simulator Server
+ * IoMT Edge Device Simulator Server (Stage 4: Edge Computing & Anomaly Detection)
  * 
  * Standalone Node.js service that simulates multiple clinical IoMT monitoring devices,
- * generates realistic human physiological signals with gradual transitions,
- * transmits telemetry via backend HTTP APIs, and provides a control interface
- * for runtime simulation adjustments.
+ * generates realistic human physiological signals, executes local edge threshold checks,
+ * summarizes normal telemetry, dispatches emergency anomaly alerts, and buffers offline data.
  */
 
 import http from 'http';
@@ -13,6 +12,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { DeviceAgent } from './device-agent.js';
 import { SCENARIO_PRESETS } from './physiology-engine.js';
+import { TRANSMISSION_POLICIES } from './transmission-engine.js';
+import { EdgeMetricsCollector } from './metrics-collector.js';
+import { MEDICAL_DISCLAIMER } from './threshold-engine.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,11 +22,15 @@ const __dirname = path.dirname(__filename);
 const PORT = parseInt(process.env.EDGE_PORT || '5005', 10);
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5001/api';
 const CONFIG_PATH = path.resolve(__dirname, '../config/devices.json');
+const PROFILES_PATH = path.resolve(__dirname, '../config/threshold-profiles.json');
 
 class IoMTSimulator {
   constructor() {
     this.devices = new Map();
     this.startTime = Date.now();
+    this.metricsCollector = new EdgeMetricsCollector();
+    this.isNetworkOnline = true;
+    this.activePolicy = 'TRANSMIT_ON_ANOMALY_OR_WINDOW';
     this.loadDevices();
   }
 
@@ -34,13 +40,17 @@ class IoMTSimulator {
         const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
         const deviceConfigs = JSON.parse(raw);
         for (const cfg of deviceConfigs) {
-          const agent = new DeviceAgent({
-            ...cfg,
-            backendUrl: BACKEND_URL,
-          });
+          const agent = new DeviceAgent(
+            {
+              ...cfg,
+              backendUrl: BACKEND_URL,
+              transmissionPolicy: this.activePolicy,
+            },
+            this.metricsCollector
+          );
           this.devices.set(agent.deviceCode, agent);
         }
-        console.log(`[Simulator] Loaded ${this.devices.size} simulated IoMT devices from configuration.`);
+        console.log(`[Simulator] Loaded ${this.devices.size} simulated IoMT devices with Edge computing pipeline.`);
       } else {
         console.warn(`[Simulator] Config file not found at ${CONFIG_PATH}`);
       }
@@ -53,10 +63,14 @@ class IoMTSimulator {
     if (!cfg.deviceCode || !cfg.apiKey || !cfg.patientId) {
       throw new Error('Device configuration requires deviceCode, apiKey, and patientId');
     }
-    const agent = new DeviceAgent({
-      ...cfg,
-      backendUrl: BACKEND_URL,
-    });
+    const agent = new DeviceAgent(
+      {
+        ...cfg,
+        backendUrl: BACKEND_URL,
+        transmissionPolicy: this.activePolicy,
+      },
+      this.metricsCollector
+    );
     this.devices.set(agent.deviceCode, agent);
     return agent;
   }
@@ -67,7 +81,7 @@ class IoMTSimulator {
 
   startAll() {
     let count = 0;
-    for (const [code, agent] of this.devices.entries()) {
+    for (const agent of this.devices.values()) {
       agent.start();
       count++;
     }
@@ -77,12 +91,42 @@ class IoMTSimulator {
 
   stopAll() {
     let count = 0;
-    for (const [code, agent] of this.devices.entries()) {
+    for (const agent of this.devices.values()) {
       agent.stop();
       count++;
     }
     console.log(`[Simulator] Stopped all ${count} simulated devices.`);
     return count;
+  }
+
+  setGlobalTransmissionPolicy(policyId) {
+    if (!TRANSMISSION_POLICIES[policyId]) return false;
+    this.activePolicy = policyId;
+    for (const agent of this.devices.values()) {
+      agent.setTransmissionPolicy(policyId);
+    }
+    console.log(`[Simulator] Global transmission policy switched to: ${policyId}`);
+    return true;
+  }
+
+  async setNetworkConnectivity(isOnline) {
+    this.isNetworkOnline = Boolean(isOnline);
+    const syncResults = [];
+    for (const agent of this.devices.values()) {
+      const res = await agent.setNetworkConnectivity(this.isNetworkOnline);
+      syncResults.push({ deviceCode: agent.deviceCode, ...res });
+    }
+    console.log(`[Simulator] Fleet network connectivity set to: ${this.isNetworkOnline ? 'ONLINE' : 'OFFLINE'}`);
+    return syncResults;
+  }
+
+  async syncAllOfflineBuffers() {
+    const results = [];
+    for (const agent of this.devices.values()) {
+      const res = await agent.synchronizeOfflineBuffer();
+      results.push({ deviceCode: agent.deviceCode, ...res });
+    }
+    return results;
   }
 
   getStatus() {
@@ -91,14 +135,21 @@ class IoMTSimulator {
       deviceStatuses.push(agent.getStatus());
     }
 
+    const metrics = this.metricsCollector.getMetrics();
+
     return {
       online: true,
       uptimeSeconds: Math.round((Date.now() - this.startTime) / 1000),
       backendUrl: BACKEND_URL,
       port: PORT,
+      isNetworkOnline: this.isNetworkOnline,
+      activeTransmissionPolicy: this.activePolicy,
+      availablePolicies: Object.values(TRANSMISSION_POLICIES),
       totalDevices: this.devices.size,
       activeStreamingDevices: deviceStatuses.filter((d) => d.isRunning).length,
+      metrics,
       devices: deviceStatuses,
+      disclaimer: MEDICAL_DISCLAIMER,
       scenarios: Object.entries(SCENARIO_PRESETS).map(([key, s]) => ({
         id: key,
         name: s.name,
@@ -144,7 +195,6 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = url.pathname;
 
-  // JSON responder
   const sendJson = (status, data) => {
     res.writeHead(status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(data));
@@ -156,6 +206,130 @@ const server = http.createServer(async (req, res) => {
       return sendJson(200, {
         success: true,
         data: simulator.getStatus(),
+      });
+    }
+
+    // GET /api/metrics
+    if (req.method === 'GET' && pathname === '/api/metrics') {
+      return sendJson(200, {
+        success: true,
+        data: simulator.metricsCollector.getMetrics(),
+        disclaimer: MEDICAL_DISCLAIMER,
+      });
+    }
+
+    // GET /api/threshold-profiles
+    if (req.method === 'GET' && pathname === '/api/threshold-profiles') {
+      let profiles = {};
+      try {
+        if (fs.existsSync(PROFILES_PATH)) {
+          profiles = JSON.parse(fs.readFileSync(PROFILES_PATH, 'utf8'));
+        }
+      } catch (e) {}
+      return sendJson(200, {
+        success: true,
+        data: profiles,
+        disclaimer: MEDICAL_DISCLAIMER,
+      });
+    }
+
+    // POST /api/policy (Sets transmission policy globally or per device)
+    if (req.method === 'POST' && pathname === '/api/policy') {
+      const body = await parseBody(req);
+      const policyId = body.policy;
+      if (!policyId || !TRANSMISSION_POLICIES[policyId]) {
+        return sendJson(400, {
+          success: false,
+          error: `Invalid transmission policy "${policyId}". Valid: ${Object.keys(TRANSMISSION_POLICIES).join(', ')}`,
+        });
+      }
+
+      if (body.deviceCode) {
+        const agent = simulator.getDevice(body.deviceCode);
+        if (!agent) {
+          return sendJson(404, { success: false, error: `Device ${body.deviceCode} not found.` });
+        }
+        agent.setTransmissionPolicy(policyId);
+        return sendJson(200, {
+          success: true,
+          message: `Device ${body.deviceCode} policy set to ${policyId}.`,
+          data: agent.getStatus(),
+        });
+      }
+
+      simulator.setGlobalTransmissionPolicy(policyId);
+      return sendJson(200, {
+        success: true,
+        message: `Global transmission policy set to ${policyId}.`,
+        data: simulator.getStatus(),
+      });
+    }
+
+    // POST /api/network-toggle (Simulates network outage / reconnect)
+    if (req.method === 'POST' && pathname === '/api/network-toggle') {
+      const body = await parseBody(req);
+      const isOnline = body.isOnline !== undefined ? Boolean(body.isOnline) : !simulator.isNetworkOnline;
+
+      if (body.deviceCode) {
+        const agent = simulator.getDevice(body.deviceCode);
+        if (!agent) {
+          return sendJson(404, { success: false, error: `Device ${body.deviceCode} not found.` });
+        }
+        const resToggle = await agent.setNetworkConnectivity(isOnline);
+        return sendJson(200, {
+          success: true,
+          message: `Device ${body.deviceCode} network status set to ${isOnline ? 'ONLINE' : 'OFFLINE'}.`,
+          data: resToggle,
+        });
+      }
+
+      const syncResults = await simulator.setNetworkConnectivity(isOnline);
+      return sendJson(200, {
+        success: true,
+        message: `Simulator fleet network status set to ${isOnline ? 'ONLINE' : 'OFFLINE'}.`,
+        data: {
+          isNetworkOnline: isOnline,
+          syncResults,
+          metrics: simulator.metricsCollector.getMetrics(),
+        },
+      });
+    }
+
+    // POST /api/sync-offline
+    if (req.method === 'POST' && pathname === '/api/sync-offline') {
+      const results = await simulator.syncAllOfflineBuffers();
+      return sendJson(200, {
+        success: true,
+        message: 'Synchronized all buffered offline telemetry.',
+        data: results,
+      });
+    }
+
+    // POST /api/thresholds
+    if (req.method === 'POST' && pathname === '/api/thresholds') {
+      const body = await parseBody(req);
+      const { deviceCode, profileName, customThresholds } = body;
+
+      if (!deviceCode) {
+        return sendJson(400, { success: false, error: 'deviceCode is required.' });
+      }
+      const agent = simulator.getDevice(deviceCode);
+      if (!agent) {
+        return sendJson(404, { success: false, error: `Device ${deviceCode} not found.` });
+      }
+
+      if (profileName) {
+        agent.setThresholdProfile(profileName);
+      }
+      if (customThresholds) {
+        agent.setCustomThresholds(customThresholds);
+      }
+
+      return sendJson(200, {
+        success: true,
+        message: `Threshold configuration updated for ${deviceCode}.`,
+        data: agent.getStatus(),
+        disclaimer: MEDICAL_DISCLAIMER,
       });
     }
 
@@ -217,7 +391,6 @@ const server = http.createServer(async (req, res) => {
       if (!success) {
         return sendJson(400, { success: false, error: `Invalid scenario preset "${scenario}".` });
       }
-      // If stopped, optionally start it so the user sees results immediately
       if (body.autoStart && !agent.isRunning) {
         agent.start();
       }
@@ -246,20 +419,6 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // POST /api/device/register
-    if (req.method === 'POST' && pathname === '/api/device/register') {
-      const body = await parseBody(req);
-      const agent = simulator.registerDevice(body);
-      if (body.autoStart) {
-        agent.start();
-      }
-      return sendJson(201, {
-        success: true,
-        message: `Device ${agent.deviceCode} registered in simulator.`,
-        data: agent.getStatus(),
-      });
-    }
-
     sendJson(404, { success: false, error: 'Endpoint not found.' });
   } catch (error) {
     console.error('[Simulator Error]', error);
@@ -267,19 +426,17 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-// Update edge/package.json main or script
 server.listen(PORT, () => {
   console.log(`\n======================================================`);
   console.log(`🏥 [IoMT Simulator] Standalone Edge Node Online`);
-  console.log(`📡 Ingestion Target: ${BACKEND_URL}/vitals/ingest`);
-  console.log(`🎛️  Control API:     http://localhost:${PORT}`);
+  console.log(`🧠 Edge Anomaly Engine: Deterministic Thresholds (<1ms)`);
+  console.log(`📡 Ingestion Target:     ${BACKEND_URL}/vitals/ingest`);
+  console.log(`🎛️  Control API:         http://localhost:${PORT}`);
   console.log(`======================================================\n`);
 
-  // Start all devices by default so readings stream continuously as required by acceptance criteria
   simulator.startAll();
 });
 
-// Graceful termination
 process.on('SIGINT', () => {
   console.log('\n[IoMT Simulator] Shutting down simulated devices...');
   simulator.stopAll();

@@ -124,6 +124,7 @@ model Device {
   patient         Patient?       @relation("PatientDevices", fields: [patientId], references: [id], onDelete: SetNull)
 
   readings        VitalReading[]
+  alerts          Alert[]
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -196,11 +197,15 @@ model Alert {
   id             String        @id @default(uuid())
   patientId      String
   patient        Patient       @relation(fields: [patientId], references: [id])
+  deviceId       String?
+  device         Device?       @relation(fields: [deviceId], references: [id], onDelete: SetNull)
   edgeDeviceId   String?
   edgeDevice     EdgeDevice?   @relation(fields: [edgeDeviceId], references: [id])
   vitalType      String
   severity       AlertSeverity @default(WARNING)
   message        String
+  currentValue   String?
+  thresholdValue String?
   isAcknowledged Boolean       @default(false)
   acknowledgedBy String?
   acknowledgedAt DateTime?
@@ -209,6 +214,7 @@ model Alert {
   createdAt      DateTime      @default(now())
 
   @@index([patientId, severity])
+  @@index([deviceId])
 }
 
 model PrivacyAuditLog {

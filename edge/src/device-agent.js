@@ -1,15 +1,22 @@
 /**
- * Virtual IoMT Device Agent
+ * Virtual IoMT Device Agent (Stage 4: Edge Computing & Anomaly Detection)
  * 
- * Simulates a distinct physical/wearable edge device connected to a specific patient.
- * Periodically generates biometric telemetry via PhysiologyEngine and sends
- * authenticated payloads to the backend ingestion API.
+ * Embeds full edge computing pipeline:
+ * - Deterministic physiological generation
+ * - Local bedside threshold anomaly detection (<1ms)
+ * - Sliding window summarization for bandwidth conservation (~80% reduction)
+ * - Transmission policy decision engine
+ * - Offline FIFO queue with automatic replay upon reconnection
  */
 
 import { PhysiologyEngine } from './physiology-engine.js';
+import { LocalVitalsProcessor } from './vitals-processor.js';
+import { TransmissionEngine } from './transmission-engine.js';
+import { OfflineQueue } from './offline-queue.js';
+import { BackendClient } from './backend-client.js';
 
 export class DeviceAgent {
-  constructor(config) {
+  constructor(config, metricsCollector) {
     this.id = config.id;
     this.deviceCode = config.deviceCode;
     this.name = config.name || `IoMT Monitor ${config.deviceCode}`;
@@ -22,7 +29,21 @@ export class DeviceAgent {
     this.batteryLevel = config.batteryLevel ?? 98;
     this.edgeNodeId = config.edgeNodeId || 'EDGE-GATEWAY-RPI4-01';
 
+    this.metricsCollector = metricsCollector;
+
+    // Edge components
     this.physiology = new PhysiologyEngine(config.scenario || 'NORMAL');
+    this.localProcessor = new LocalVitalsProcessor({
+      deviceCode: this.deviceCode,
+      patientId: this.patientId,
+      thresholdProfile: config.thresholdProfile || 'STANDARD_ADULT',
+      customThresholds: config.customThresholds,
+      windowSize: config.windowSize || 5,
+    });
+    this.transmissionEngine = new TransmissionEngine(config.transmissionPolicy || 'TRANSMIT_ON_ANOMALY_OR_WINDOW');
+    this.offlineQueue = new OfflineQueue(2000);
+    this.backendClient = new BackendClient(this.backendUrl);
+
     this.isRunning = false;
     this.timer = null;
     this.lastReading = null;
@@ -30,23 +51,24 @@ export class DeviceAgent {
     this.lastStatus = 'INITIALIZED';
     this.lastError = null;
     this.readingsCount = 0;
+    this.localAlertsCount = 0;
   }
 
   /**
-   * Start telemetry streaming
+   * Start telemetry streaming & local processing
    */
   start() {
     if (this.isRunning) return;
 
     this.isRunning = true;
     this.lastStatus = 'STREAMING';
-    console.log(`[DeviceAgent ${this.deviceCode}] Started streaming (interval: ${this.intervalMs}ms, scenario: ${this.physiology.getScenario()}).`);
+    console.log(`[DeviceAgent ${this.deviceCode}] Started streaming (interval: ${this.intervalMs}ms, scenario: ${this.physiology.getScenario()}, policy: ${this.transmissionEngine.policy}).`);
 
     // Immediate first tick
-    this.tickAndSend();
+    this.tickAndProcess();
 
     this.timer = setInterval(() => {
-      this.tickAndSend();
+      this.tickAndProcess();
     }, this.intervalMs);
   }
 
@@ -65,9 +87,6 @@ export class DeviceAgent {
     console.log(`[DeviceAgent ${this.deviceCode}] Stopped streaming.`);
   }
 
-  /**
-   * Set sampling interval in milliseconds
-   */
   setInterval(ms) {
     const newInterval = Math.max(1000, Math.min(60000, Number(ms)));
     this.intervalMs = newInterval;
@@ -75,101 +94,207 @@ export class DeviceAgent {
       this.stop();
       this.start();
     }
-    console.log(`[DeviceAgent ${this.deviceCode}] Sampling interval updated to ${this.intervalMs}ms.`);
   }
 
-  /**
-   * Update clinical scenario
-   */
   setScenario(scenarioKey) {
-    const success = this.physiology.setScenario(scenarioKey);
-    if (success) {
-      console.log(`[DeviceAgent ${this.deviceCode}] Scenario transitioned to: ${scenarioKey}`);
-    }
-    return success;
+    return this.physiology.setScenario(scenarioKey);
+  }
+
+  setTransmissionPolicy(policyId) {
+    return this.transmissionEngine.setPolicy(policyId);
+  }
+
+  setThresholdProfile(profileKey) {
+    return this.localProcessor.setProfile(profileKey);
+  }
+
+  setCustomThresholds(thresholds) {
+    this.localProcessor.setCustomThresholds(thresholds);
   }
 
   /**
-   * Generates reading and transmits to backend ingestion API
+   * Toggle simulated network connectivity (for offline buffering demonstration)
    */
-  async tickAndSend() {
-    try {
-      const reading = this.physiology.tick();
-      this.lastReading = reading;
-      this.lastSentAt = new Date().toISOString();
+  async setNetworkConnectivity(isOnline) {
+    const res = this.offlineQueue.setOnlineStatus(isOnline);
+    this.metricsCollector.setOfflineBufferedCount(this.offlineQueue.size());
 
-      // Deplete battery very slowly (0.01% every 10 ticks)
+    console.log(`[DeviceAgent ${this.deviceCode}] Simulated Network status: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+
+    if (res.justReconnected && this.offlineQueue.size() > 0) {
+      console.log(`[DeviceAgent ${this.deviceCode}] Network restored! Replaying ${this.offlineQueue.size()} buffered readings...`);
+      await this.synchronizeOfflineBuffer();
+    }
+
+    return res;
+  }
+
+  /**
+   * Synchronizes buffered offline telemetry to central backend
+   */
+  async synchronizeOfflineBuffer() {
+    const bufferedItems = this.offlineQueue.drainAll();
+    this.metricsCollector.setOfflineBufferedCount(0);
+
+    if (bufferedItems.length === 0) return { synchronized: 0 };
+
+    console.log(`[DeviceAgent ${this.deviceCode}] Synchronizing batch of ${bufferedItems.length} readings to PostgreSQL...`);
+
+    const payload = {
+      deviceId: this.deviceCode,
+      apiKey: this.apiKey,
+      patientId: this.patientId,
+      readings: bufferedItems.map((item) => ({
+        heartRate: item.heartRate,
+        spo2: item.spo2,
+        bloodPressureSys: item.bloodPressureSys,
+        bloodPressureDia: item.bloodPressureDia,
+        temperature: item.temperature,
+        respiratoryRate: item.respiratoryRate,
+        scenario: item.scenario || 'OFFLINE_REPLAY',
+        isSimulated: true,
+        recordedAt: item.recordedAt,
+      })),
+    };
+
+    const res = await this.backendClient.ingestVitals(payload);
+
+    if (res.success) {
+      this.metricsCollector.recordTransmission(res.rttMs);
+      console.log(`[DeviceAgent ${this.deviceCode}] ✅ Successfully synchronized ${bufferedItems.length} buffered readings to central DB.`);
+    } else {
+      console.error(`[DeviceAgent ${this.deviceCode}] ❌ Offline sync failed. Re-buffering readings.`);
+      for (const item of bufferedItems) {
+        this.offlineQueue.enqueue(item);
+      }
+      this.metricsCollector.setOfflineBufferedCount(this.offlineQueue.size());
+    }
+
+    return { synchronized: bufferedItems.length, success: res.success };
+  }
+
+  /**
+   * Master execution tick:
+   * 1. Generates physiological reading
+   * 2. Executes local edge analysis & threshold checks (<1ms)
+   * 3. Dispatches local alerts immediately upon anomaly
+   * 4. Applies transmission decision engine (summary vs. immediate)
+   * 5. Buffers into offline queue if connectivity is down
+   */
+  async tickAndProcess() {
+    try {
+      // 1. Generate physiological telemetry
+      const rawReading = this.physiology.tick();
+      this.lastReading = rawReading;
+      this.readingsCount++;
+      this.metricsCollector.recordGenerated(1);
+
+      // Deplete battery very slowly
       if (this.readingsCount % 10 === 0 && this.batteryLevel > 15) {
         this.batteryLevel = Math.max(15, this.batteryLevel - 0.05);
       }
 
-      const payload = {
-        deviceId: this.deviceCode, // Can pass deviceCode or DB id
+      // 2. Local Edge Vitals Processing & Threshold Anomaly Detection
+      const processed = this.localProcessor.process(rawReading);
+
+      // Record local processing latency
+      this.metricsCollector.recordLocalProcessing(
+        processed.processingLatencyMs,
+        processed.evaluation.confirmedState === 'NORMAL' && this.transmissionEngine.policy !== 'SEND_ALL'
+      );
+
+      // 3. Local Alert Generator: Dispatch Immediate Alert
+      if (processed.alertToEmit) {
+        this.localAlertsCount++;
+        this.metricsCollector.recordAlert();
+
+        const alertPayload = {
+          patientId: this.patientId,
+          deviceId: this.id || this.deviceCode,
+          vitalType: processed.alertToEmit.vitalType,
+          severity: processed.alertToEmit.severity,
+          message: processed.alertToEmit.message,
+          currentValue: processed.alertToEmit.currentValue,
+          thresholdValue: processed.alertToEmit.thresholdValue,
+          createdAt: processed.alertToEmit.detectedAt,
+        };
+
+        console.log(`[DeviceAgent ${this.deviceCode}] 🚨 LOCAL ALERT [${alertPayload.severity}]: ${alertPayload.message} (Detection latency: ${processed.processingLatencyMs}ms)`);
+
+        // If online, report to backend alerts endpoint immediately
+        if (this.offlineQueue.isOnline) {
+          this.backendClient.reportAlert(alertPayload).catch((e) => {
+            console.error('[DeviceAgent] Alert report failed:', e.message);
+          });
+        }
+      }
+
+      // 4. Transmission Decision Engine
+      const decision = this.transmissionEngine.evaluate(processed);
+
+      if (!decision.shouldTransmit) {
+        // Telemetry was summarized / bandwidth saved at the edge!
+        this.lastStatus = 'SUMMARIZED_AT_EDGE';
+        return;
+      }
+
+      // 5. Transmission / Buffering
+      const itemToTransmit = {
+        deviceId: this.deviceCode,
         apiKey: this.apiKey,
-        patientId: this.patientId, // Patient DB ID
-        heartRate: reading.heartRate,
-        spo2: reading.spo2,
-        bloodPressureSys: reading.bloodPressureSys,
-        bloodPressureDia: reading.bloodPressureDia,
-        temperature: reading.temperature,
-        respiratoryRate: reading.respiratoryRate,
-        scenario: reading.scenario,
+        patientId: this.patientId,
+        heartRate: decision.payload.heartRate,
+        spo2: decision.payload.spo2,
+        bloodPressureSys: decision.payload.bloodPressureSys,
+        bloodPressureDia: decision.payload.bloodPressureDia,
+        temperature: decision.payload.temperature,
+        respiratoryRate: decision.payload.respiratoryRate,
+        scenario: decision.payload.scenario || rawReading.scenario,
         isSimulated: true,
-        recordedAt: reading.recordedAt,
+        recordedAt: decision.payload.recordedAt || rawReading.recordedAt,
       };
 
-      const res = await fetch(`${this.backendUrl}/vitals/ingest`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': `IoMT-EdgeDevice/${this.deviceCode}`,
-        },
-        body: JSON.stringify(payload),
-      });
+      // Check if network is simulated offline
+      if (!this.offlineQueue.isOnline) {
+        this.offlineQueue.enqueue(itemToTransmit);
+        this.metricsCollector.setOfflineBufferedCount(this.offlineQueue.size());
+        this.lastStatus = `OFFLINE_BUFFERED (${this.offlineQueue.size()})`;
+        console.log(`[DeviceAgent ${this.deviceCode}] 📦 [Offline Mode] Buffered reading. Queue depth: ${this.offlineQueue.size()}`);
+        return;
+      }
 
-      const data = await res.json();
+      // Transmit to central backend
+      const res = await this.backendClient.ingestVitals(itemToTransmit);
 
-      if (!res.ok) {
+      if (res.isNetworkError) {
+        // Physical network connection failure -> auto fallback to offline queue
+        this.offlineQueue.enqueue(itemToTransmit);
+        this.metricsCollector.setOfflineBufferedCount(this.offlineQueue.size());
+        this.lastStatus = `OFFLINE_NETWORK_DROPPED (${this.offlineQueue.size()})`;
+        console.warn(`[DeviceAgent ${this.deviceCode}] Connection lost. Falling back to offline queue (${this.offlineQueue.size()} items).`);
+      } else if (!res.success) {
         this.lastStatus = `ERROR: ${res.status}`;
-        this.lastError = data.error?.message || `HTTP ${res.status}`;
-        console.error(`[DeviceAgent ${this.deviceCode}] ❌ Ingestion failed (${res.status}):`, this.lastError);
+        this.lastError = res.error;
       } else {
         this.lastStatus = 'STREAMING_OK';
         this.lastError = null;
-        this.readingsCount++;
-        const hrColor = reading.heartRate > 120 || reading.heartRate < 55 ? '⚠️' : '💚';
+        this.lastSentAt = new Date().toISOString();
+        this.metricsCollector.recordTransmission(res.rttMs);
+
+        const badge = processed.isCritical ? '🚨 CRITICAL' : processed.isAbnormal ? '⚠️ WARNING' : '💚 NORMAL';
         console.log(
-          `[DeviceAgent ${this.deviceCode} -> ${this.patientCode}] ${hrColor} HR: ${reading.heartRate} bpm | SpO2: ${reading.spo2}% | BP: ${reading.bloodPressureSys}/${reading.bloodPressureDia} mmHg | Temp: ${reading.temperature}°C [${reading.scenario}]`
+          `[DeviceAgent ${this.deviceCode}] ${badge} HR: ${itemToTransmit.heartRate} | SpO2: ${itemToTransmit.spo2}% | BP: ${itemToTransmit.bloodPressureSys}/${itemToTransmit.bloodPressureDia} [${decision.reason}] RTT: ${res.rttMs}ms`
         );
       }
     } catch (err) {
-      this.lastStatus = 'NETWORK_ERROR';
+      this.lastStatus = 'PROCESSING_ERROR';
       this.lastError = err.message;
-      console.error(`[DeviceAgent ${this.deviceCode}] ❌ Network error transmitting vitals:`, err.message);
-    }
-  }
-
-  /**
-   * Heartbeat ping to backend
-   */
-  async sendHeartbeat() {
-    try {
-      await fetch(`${this.backendUrl}/devices/${this.id || this.deviceCode}/heartbeat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          batteryLevel: Math.round(this.batteryLevel),
-          status: this.isRunning ? 'ONLINE' : 'DEGRADED',
-        }),
-      });
-    } catch (err) {
-      // ignore background heartbeat errors
+      console.error(`[DeviceAgent ${this.deviceCode}] Error in edge pipeline:`, err);
     }
   }
 
   getStatus() {
+    const queueStats = this.offlineQueue.getStats();
     return {
       id: this.id,
       deviceCode: this.deviceCode,
@@ -179,12 +304,18 @@ export class DeviceAgent {
       patientName: this.patientName,
       intervalMs: this.intervalMs,
       scenario: this.physiology.getScenario(),
+      transmissionPolicy: this.transmissionEngine.policy,
+      thresholdProfile: this.localProcessor.thresholdEngine.profileName,
+      thresholds: this.localProcessor.thresholdEngine.thresholds,
       isRunning: this.isRunning,
+      isOnline: this.offlineQueue.isOnline,
+      offlineBufferSize: queueStats.currentBufferSize,
       batteryLevel: Math.round(this.batteryLevel),
       lastStatus: this.lastStatus,
       lastError: this.lastError,
       lastSentAt: this.lastSentAt,
       readingsCount: this.readingsCount,
+      localAlertsCount: this.localAlertsCount,
       lastReading: this.lastReading,
     };
   }

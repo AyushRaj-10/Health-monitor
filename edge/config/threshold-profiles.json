@@ -1,0 +1,152 @@
+{
+  "profiles": {
+    "STANDARD_ADULT": {
+      "name": "Standard Adult Telemetry Profile",
+      "description": "General adult inpatient / remote home telemetry threshold bounds",
+      "heartRate": {
+        "normalMin": 60,
+        "normalMax": 100,
+        "warningMin": 50,
+        "warningMax": 125,
+        "criticalMin": 45,
+        "criticalMax": 135
+      },
+      "spo2": {
+        "normalMin": 95,
+        "warningMin": 90,
+        "criticalMin": 88
+      },
+      "bloodPressureSys": {
+        "normalMin": 90,
+        "normalMax": 125,
+        "warningMin": 80,
+        "warningMax": 155,
+        "criticalMin": 75,
+        "criticalMax": 170
+      },
+      "bloodPressureDia": {
+        "normalMin": 60,
+        "normalMax": 82,
+        "warningMin": 50,
+        "warningMax": 96,
+        "criticalMin": 45,
+        "criticalMax": 105
+      },
+      "temperature": {
+        "normalMin": 36.5,
+        "normalMax": 37.5,
+        "warningMin": 35.5,
+        "warningMax": 38.4,
+        "criticalMin": 35.0,
+        "criticalMax": 38.8
+      },
+      "persistenceSamples": 2,
+      "hysteresisBand": {
+        "heartRate": 2,
+        "spo2": 1,
+        "bloodPressureSys": 3,
+        "bloodPressureDia": 2,
+        "temperature": 0.2
+      }
+    },
+    "CARDIAC_SURVEILLANCE": {
+      "name": "Intensive Cardiac Surveillance Profile",
+      "description": "Strict threshold monitoring for congestive heart failure and cardiac arrhythmia patients",
+      "heartRate": {
+        "normalMin": 60,
+        "normalMax": 90,
+        "warningMin": 55,
+        "warningMax": 110,
+        "criticalMin": 50,
+        "criticalMax": 125
+      },
+      "spo2": {
+        "normalMin": 95,
+        "warningMin": 92,
+        "criticalMin": 90
+      },
+      "bloodPressureSys": {
+        "normalMin": 95,
+        "normalMax": 128,
+        "warningMin": 85,
+        "warningMax": 145,
+        "criticalMin": 80,
+        "criticalMax": 160
+      },
+      "bloodPressureDia": {
+        "normalMin": 60,
+        "normalMax": 82,
+        "warningMin": 50,
+        "warningMax": 92,
+        "criticalMin": 45,
+        "criticalMax": 100
+      },
+      "temperature": {
+        "normalMin": 36.5,
+        "normalMax": 37.5,
+        "warningMin": 35.5,
+        "warningMax": 38.2,
+        "criticalMin": 35.0,
+        "criticalMax": 38.6
+      },
+      "persistenceSamples": 2,
+      "hysteresisBand": {
+        "heartRate": 2,
+        "spo2": 1,
+        "bloodPressureSys": 2,
+        "bloodPressureDia": 2,
+        "temperature": 0.1
+      }
+    },
+    "RESPIRATORY_PULMONARY": {
+      "name": "Pulmonary & Hypoxemia Surveillance Profile",
+      "description": "High sensitivity profile for COPD, severe asthma, and pulmonary distress tracking",
+      "heartRate": {
+        "normalMin": 60,
+        "normalMax": 105,
+        "warningMin": 50,
+        "warningMax": 120,
+        "criticalMin": 45,
+        "criticalMax": 135
+      },
+      "spo2": {
+        "normalMin": 94,
+        "warningMin": 91,
+        "criticalMin": 89
+      },
+      "bloodPressureSys": {
+        "normalMin": 90,
+        "normalMax": 130,
+        "warningMin": 80,
+        "warningMax": 155,
+        "criticalMin": 75,
+        "criticalMax": 170
+      },
+      "bloodPressureDia": {
+        "normalMin": 60,
+        "normalMax": 85,
+        "warningMin": 50,
+        "warningMax": 95,
+        "criticalMin": 45,
+        "criticalMax": 105
+      },
+      "temperature": {
+        "normalMin": 36.5,
+        "normalMax": 37.5,
+        "warningMin": 35.5,
+        "warningMax": 38.4,
+        "criticalMin": 35.0,
+        "criticalMax": 38.8
+      },
+      "persistenceSamples": 2,
+      "hysteresisBand": {
+        "heartRate": 2,
+        "spo2": 1,
+        "bloodPressureSys": 3,
+        "bloodPressureDia": 2,
+        "temperature": 0.2
+      }
+    }
+  },
+  "disclaimer": "Academic Simulation Notice: Thresholds are for demonstration and system evaluation only. They must not be represented as clinically validated diagnostic rules."
+}

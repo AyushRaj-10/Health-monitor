@@ -7,6 +7,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Patients } from './pages/Patients';
 import { PatientDetails } from './pages/PatientDetails';
 import { Devices } from './pages/Devices';
+import { EdgeComparison } from './pages/EdgeComparison';
 import { LiveMonitoring } from './pages/LiveMonitoring';
 import { Alerts } from './pages/Alerts';
 import { Analytics } from './pages/Analytics';
@@ -28,6 +29,7 @@ export const App: React.FC = () => {
           <Route path="patients" element={<Patients />} />
           <Route path="patients/:id" element={<PatientDetails />} />
           <Route path="devices" element={<Devices />} />
+          <Route path="edge-comparison" element={<EdgeComparison />} />
           <Route path="monitoring" element={<LiveMonitoring />} />
           <Route path="alerts" element={<Alerts />} />
           <Route path="analytics" element={<Analytics />} />
