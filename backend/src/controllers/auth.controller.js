@@ -8,6 +8,7 @@ import {
   clearRefreshTokenCookie,
 } from '../utils/token.js';
 import { loginSchema, registerDoctorSchema } from '../validations/auth.validation.js';
+import { recordAuditLog } from '../services/audit.service.js';
 
 /**
  * POST /api/auth/login
@@ -38,6 +39,14 @@ export async function login(req, res, next) {
     if (!user) {
       // Fake hash compare to prevent timing side-channel attack
       await bcrypt.compare(password, '$2a$10$abcdefghijklmnopqrstuvwxyzABCDEF0123456789ABCDEFGHIJK');
+      recordAuditLog({
+        action: 'AUTH_FAILED_LOGIN',
+        resourceType: 'User',
+        metadata: { attemptedEmail: email, reason: 'USER_NOT_FOUND' },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        status: 'FAILURE',
+      });
       return res.status(401).json({
         success: false,
         error: {
@@ -49,6 +58,19 @@ export async function login(req, res, next) {
 
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
+      recordAuditLog({
+        userId: user.id,
+        userName: user.name,
+        userEmail: user.email,
+        userRole: user.role,
+        action: 'AUTH_FAILED_LOGIN',
+        resourceType: 'User',
+        resourceId: user.id,
+        metadata: { reason: 'PASSWORD_MISMATCH' },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        status: 'FAILURE',
+      });
       return res.status(401).json({
         success: false,
         error: {
@@ -85,6 +107,21 @@ export async function login(req, res, next) {
 
     // Set secure HttpOnly cookie
     setRefreshTokenCookie(res, refreshTokenString);
+
+    // Audit Log Entry for Successful Authentication
+    recordAuditLog({
+      userId: user.id,
+      userName: user.name,
+      userEmail: user.email,
+      userRole: user.role,
+      action: 'AUTH_LOGIN',
+      resourceType: 'User',
+      resourceId: user.id,
+      metadata: { department: user.department, role: user.role },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      status: 'SUCCESS',
+    });
 
     // Return access token and sanitized user
     res.status(200).json({
@@ -133,6 +170,20 @@ export async function refreshToken(req, res, next) {
 
     if (!tokenRecord || tokenRecord.revokedAt || tokenRecord.expiresAt < new Date()) {
       clearRefreshTokenCookie(res);
+
+    if (req.user) {
+      recordAuditLog({
+        userId: req.user.id,
+        userName: req.user.name,
+        userEmail: req.user.email,
+        userRole: req.user.role,
+        action: 'AUTH_LOGOUT',
+        resourceType: 'User',
+        resourceId: req.user.id,
+        ipAddress: req.ip,
+        status: 'SUCCESS',
+      });
+    }
       return res.status(401).json({
         success: false,
         error: {
@@ -144,6 +195,20 @@ export async function refreshToken(req, res, next) {
 
     if (!tokenRecord.user.isActive) {
       clearRefreshTokenCookie(res);
+
+    if (req.user) {
+      recordAuditLog({
+        userId: req.user.id,
+        userName: req.user.name,
+        userEmail: req.user.email,
+        userRole: req.user.role,
+        action: 'AUTH_LOGOUT',
+        resourceType: 'User',
+        resourceId: req.user.id,
+        ipAddress: req.ip,
+        status: 'SUCCESS',
+      });
+    }
       return res.status(403).json({
         success: false,
         error: {
@@ -208,6 +273,20 @@ export async function logout(req, res, next) {
     }
 
     clearRefreshTokenCookie(res);
+
+    if (req.user) {
+      recordAuditLog({
+        userId: req.user.id,
+        userName: req.user.name,
+        userEmail: req.user.email,
+        userRole: req.user.role,
+        action: 'AUTH_LOGOUT',
+        resourceType: 'User',
+        resourceId: req.user.id,
+        ipAddress: req.ip,
+        status: 'SUCCESS',
+      });
+    }
 
     res.status(200).json({
       success: true,

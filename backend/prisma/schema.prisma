@@ -53,6 +53,22 @@ enum AlertStatus {
   RESOLVED
 }
 
+enum ConsentStatus {
+  GRANTED
+  REVOKED
+  EXPIRED
+  PENDING
+}
+
+enum ConsentPurpose {
+  REMOTE_MONITORING
+  EMERGENCY_CARE
+  CLINICAL_RESEARCH
+  TELEMETRY_INGESTION
+  AI_MODEL_TRAINING
+  THIRD_PARTY_AUDIT
+}
+
 model User {
   id            String            @id @default(uuid())
   name          String
@@ -67,6 +83,7 @@ model User {
   patients      Patient[]         @relation("DoctorPatients")
   refreshTokens RefreshToken[]
   auditLogs     PrivacyAuditLog[]
+  auditLogsList AuditLog[]
 
   @@index([email])
 }
@@ -107,6 +124,7 @@ model Patient {
   edgeDevices        EdgeDevice[]
   vitals             VitalRecord[]
   alerts             Alert[]
+  consents           PatientConsent[]
 
   @@index([patientCode])
   @@index([name])
@@ -256,4 +274,50 @@ model PrivacyConfig {
   anonymizationLevel         String   @default("K-Anonymity (k=5)")
   edgeBandwidthSavingPercent Float    @default(74.5)
   updatedAt                  DateTime @updatedAt
+}
+
+model PatientConsent {
+  id                 String         @id @default(uuid())
+  patientId          String
+  patient            Patient        @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  purpose            ConsentPurpose @default(REMOTE_MONITORING)
+  status             ConsentStatus  @default(GRANTED)
+  grantedBy          String?        @default("Patient (Self)")
+  grantedAt          DateTime       @default(now())
+  expiresAt          DateTime?
+  revokedAt          DateTime?
+  revokedBy          String?
+  revocationReason   String?
+  authorizedRoles    String[]       @default(["DOCTOR", "NURSE", "ADMIN"])
+  authorizedPurposes String[]       @default(["REMOTE_MONITORING", "EMERGENCY_CARE"])
+  notes              String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @default(now()) @updatedAt
+
+  @@index([patientId, status])
+  @@index([patientId, purpose])
+  @@index([status])
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userName     String?
+  userEmail    String?
+  userRole     String?
+  action       String
+  resourceType String
+  resourceId   String?
+  metadata     String?
+  ipAddress    String?
+  userAgent    String?
+  status       String   @default("SUCCESS")
+  timestamp    DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([resourceType, resourceId])
+  @@index([timestamp])
+  @@index([status])
 }

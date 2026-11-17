@@ -1,5 +1,7 @@
 import { prisma } from '../config/prisma.js';
 import { createPatientSchema, updatePatientSchema } from '../validations/patient.validation.js';
+import { recordAuditLog } from '../services/audit.service.js';
+import { encryptDataAtRest, maskPatientSensitiveFields } from '../utils/crypto.util.js';
 
 /**
  * POST /api/patients
@@ -75,7 +77,7 @@ export async function createPatient(req, res, next) {
         name: name.trim(),
         dateOfBirth: new Date(dateOfBirth),
         gender,
-        contactInformation: contactInformation || null,
+        contactInformation: contactInformation ? encryptDataAtRest(contactInformation) : null,
         assignedDoctorId: doctorIdToAssign || null,
         medicalHistory: medicalHistory || null,
         condition: condition || 'Routine Telemetry Monitoring',
@@ -93,6 +95,20 @@ export async function createPatient(req, res, next) {
           },
         },
       },
+    });
+
+    // Record Immutable Audit Log
+    await recordAuditLog({
+      userId: req.user.id,
+      userName: req.user.name,
+      userEmail: req.user.email,
+      userRole: req.user.role,
+      action: 'PATIENT_CREATE',
+      resourceType: 'Patient',
+      resourceId: newPatient.id,
+      metadata: { patientCode: newPatient.patientCode, name: newPatient.name },
+      ipAddress: req.ip,
+      status: 'SUCCESS',
     });
 
     res.status(201).json({
@@ -221,7 +237,8 @@ export async function getPatientById(req, res, next) {
         devices: {
           select: {
             id: true,
-            deviceName: true,
+            name: true,
+            deviceCode: true,
             deviceType: true,
             status: true,
             batteryLevel: true,
@@ -242,9 +259,26 @@ export async function getPatientById(req, res, next) {
       });
     }
 
+    // Record Immutable Audit Log for Clinical Record Access
+    await recordAuditLog({
+      userId: req.user.id,
+      userName: req.user.name,
+      userEmail: req.user.email,
+      userRole: req.user.role,
+      action: 'PATIENT_RECORD_VIEW',
+      resourceType: 'Patient',
+      resourceId: patient.id,
+      metadata: { patientCode: patient.patientCode, accessType: req.isAssignedDoctor ? 'PRIMARY_CARE' : 'WARD_OVERSIGHT' },
+      ipAddress: req.ip,
+      status: 'SUCCESS',
+    });
+
+    // Apply sensitive field masking based on role authorization
+    const sanitizedPatient = maskPatientSensitiveFields(patient, req.user, req.isAssignedDoctor);
+
     res.status(200).json({
       success: true,
-      data: patient,
+      data: sanitizedPatient,
     });
   } catch (error) {
     next(error);
@@ -291,6 +325,9 @@ export async function updatePatient(req, res, next) {
     if (updateData.dateOfBirth) {
       updateData.dateOfBirth = new Date(updateData.dateOfBirth);
     }
+    if (updateData.contactInformation) {
+      updateData.contactInformation = encryptDataAtRest(updateData.contactInformation);
+    }
 
     // Verify assigned doctor if updating
     if (updateData.assignedDoctorId) {
@@ -321,6 +358,20 @@ export async function updatePatient(req, res, next) {
           },
         },
       },
+    });
+
+    // Record Immutable Audit Log
+    await recordAuditLog({
+      userId: req.user.id,
+      userName: req.user.name,
+      userEmail: req.user.email,
+      userRole: req.user.role,
+      action: 'PATIENT_UPDATE',
+      resourceType: 'Patient',
+      resourceId: updatedPatient.id,
+      metadata: { patientCode: updatedPatient.patientCode, changedFields: Object.keys(updateData) },
+      ipAddress: req.ip,
+      status: 'SUCCESS',
     });
 
     res.status(200).json({
@@ -358,6 +409,19 @@ export async function deletePatient(req, res, next) {
 
     // Only ADMIN or the assigned DOCTOR can delete the patient record
     if (req.user.role !== 'ADMIN' && patient.assignedDoctorId !== req.user.id) {
+      recordAuditLog({
+        userId: req.user.id,
+        userName: req.user.name,
+        userEmail: req.user.email,
+        userRole: req.user.role,
+        action: 'UNAUTHORIZED_ACCESS_ATTEMPT',
+        resourceType: 'Patient',
+        resourceId: patient.id,
+        metadata: { reason: 'UNAUTHORIZED_PATIENT_DELETE_ATTEMPT' },
+        ipAddress: req.ip,
+        status: 'DENIED',
+      });
+
       return res.status(403).json({
         success: false,
         error: {
@@ -369,6 +433,20 @@ export async function deletePatient(req, res, next) {
 
     await prisma.patient.delete({
       where: { id },
+    });
+
+    // Record Immutable Audit Log
+    await recordAuditLog({
+      userId: req.user.id,
+      userName: req.user.name,
+      userEmail: req.user.email,
+      userRole: req.user.role,
+      action: 'PATIENT_DELETE',
+      resourceType: 'Patient',
+      resourceId: patient.id,
+      metadata: { patientCode: patient.patientCode, name: patient.name },
+      ipAddress: req.ip,
+      status: 'SUCCESS',
     });
 
     res.status(200).json({
