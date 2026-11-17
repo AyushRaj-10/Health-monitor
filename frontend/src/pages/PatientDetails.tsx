@@ -496,6 +496,12 @@ export const PatientDetails: React.FC = () => {
                 {subscriptionStatus === 'SUBSCRIBED' ? 'Authorized (Encrypted)' : subscriptionStatus}
               </span>
             </div>
+            <div className="flex justify-between">
+              <span>Consent Status:</span>
+              <span className="font-mono text-[11px] text-emerald-400">
+                Active (Remote Monitoring)
+              </span>
+            </div>
           </div>
         </div>
       </div>

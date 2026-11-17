@@ -32,6 +32,13 @@ import {
   PatientAnalyticsResponse,
   PatientVitalsAnalyticsResponse,
 } from '../types/analytics';
+import {
+  PatientConsent,
+  AuditLog,
+  GetAuditLogsParams,
+  GetAuditLogsResponse,
+  SecurityOverviewData,
+} from '../types/security';
 
 // Security constraint: Store access token in memory ONLY (never in localStorage)
 let inMemoryAccessToken: string | null = null;
@@ -483,5 +490,83 @@ export async function getPatientVitalsAnalyticsApi(
   }>(`/analytics/vitals/${patientId}`, { params });
   return response.data.data;
 }
+
+// ================= CONSENT API METHODS =================
+
+export type { PatientConsent, AuditLog, GetAuditLogsParams, GetAuditLogsResponse, SecurityOverviewData };
+
+export async function getConsentsApi(params: {
+  patientId?: string;
+  status?: string;
+  purpose?: string;
+  page?: number;
+  limit?: number;
+} = {}): Promise<{
+  success: boolean;
+  data: PatientConsent[];
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+    activeCount: number;
+    revokedCount: number;
+  };
+}> {
+  const response = await apiClient.get('/consent', { params });
+  return response.data;
+}
+
+export async function getPatientConsentsApi(patientId: string): Promise<{
+  patient: { id: string; patientCode: string; name: string };
+  consents: PatientConsent[];
+  activeConsent: PatientConsent | null;
+}> {
+  const response = await apiClient.get<{
+    success: boolean;
+    data: { patient: any; consents: PatientConsent[]; activeConsent: PatientConsent | null };
+  }>(`/consent/patient/${patientId}`);
+  return response.data.data;
+}
+
+export async function grantConsentApi(input: {
+  patientId: string;
+  purpose?: string;
+  grantedBy?: string;
+  expiresAt?: string;
+  authorizedRoles?: string[];
+  authorizedPurposes?: string[];
+  notes?: string;
+}): Promise<PatientConsent> {
+  const response = await apiClient.post<{ success: boolean; data: PatientConsent }>('/consent', input);
+  return response.data.data;
+}
+
+export async function revokeConsentApi(id: string, revocationReason?: string): Promise<PatientConsent> {
+  const response = await apiClient.patch<{ success: boolean; data: PatientConsent }>(`/consent/${id}/revoke`, {
+    revocationReason,
+  });
+  return response.data.data;
+}
+
+// ================= AUDIT LOGS API METHODS =================
+
+export async function getAuditLogsApi(params: GetAuditLogsParams = {}): Promise<GetAuditLogsResponse> {
+  const response = await apiClient.get<GetAuditLogsResponse>('/audit', { params });
+  return response.data;
+}
+
+export async function getAuditLogByIdApi(id: string): Promise<AuditLog> {
+  const response = await apiClient.get<{ success: boolean; data: AuditLog }>(`/audit/${id}`);
+  return response.data.data;
+}
+
+// ================= SECURITY API METHODS =================
+
+export async function getSecurityOverviewApi(): Promise<SecurityOverviewData> {
+  const response = await apiClient.get<{ success: boolean; data: SecurityOverviewData }>('/security/overview');
+  return response.data.data;
+}
+
 
 

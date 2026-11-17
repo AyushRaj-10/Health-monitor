@@ -1,5 +1,6 @@
 import { prisma } from '../config/prisma.js';
 import { emitNewAlert, emitAlertUpdate } from '../services/socket.service.js';
+import { recordAuditLog } from '../services/audit.service.js';
 
 /**
  * POST /api/alerts/ingest (and POST /api/alerts)
@@ -341,6 +342,25 @@ export async function acknowledgeAlert(req, res, next) {
     // Broadcast real-time alert update event
     emitAlertUpdate(alert.patientId, alert);
 
+    if (req.user) {
+      recordAuditLog({
+        userId: req.user.id,
+        userName: req.user.name,
+        userEmail: req.user.email,
+        userRole: req.user.role,
+        action: 'ALERT_ACKNOWLEDGE',
+        resourceType: 'Alert',
+        resourceId: alert.id,
+        metadata: {
+          patientId: alert.patientId,
+          patientCode: alert.patient?.patientCode,
+          severity: alert.severity,
+        },
+        ipAddress: req.ip,
+        status: 'SUCCESS',
+      });
+    }
+
     res.status(200).json({
       success: true,
       message: 'Alert acknowledged successfully.',
@@ -392,6 +412,26 @@ export async function resolveAlert(req, res, next) {
 
     // Broadcast real-time alert update event
     emitAlertUpdate(alert.patientId, alert);
+
+    if (req.user) {
+      recordAuditLog({
+        userId: req.user.id,
+        userName: req.user.name,
+        userEmail: req.user.email,
+        userRole: req.user.role,
+        action: 'ALERT_RESOLVE',
+        resourceType: 'Alert',
+        resourceId: alert.id,
+        metadata: {
+          patientId: alert.patientId,
+          patientCode: alert.patient?.patientCode,
+          severity: alert.severity,
+          hasResolutionNotes: !!resolutionNotes,
+        },
+        ipAddress: req.ip,
+        status: 'SUCCESS',
+      });
+    }
 
     res.status(200).json({
       success: true,

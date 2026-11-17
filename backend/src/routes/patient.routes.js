@@ -10,7 +10,12 @@ import {
   getPatientVitals,
   getLatestPatientVitals,
 } from '../controllers/vitals.controller.js';
-import { authenticateToken, requireRole } from '../middlewares/auth.middleware.js';
+import {
+  authenticateToken,
+  requirePermission,
+  authorizePatientAccess,
+} from '../middlewares/auth.middleware.js';
+import { PERMISSIONS } from '../config/permissions.js';
 
 export const patientRouter = Router();
 
@@ -18,12 +23,12 @@ export const patientRouter = Router();
 patientRouter.use(authenticateToken);
 
 // Patient CRUD routes
-patientRouter.post('/', requireRole('ADMIN', 'DOCTOR', 'NURSE'), createPatient);
-patientRouter.get('/', getPatients);
-patientRouter.get('/:id', getPatientById);
-patientRouter.patch('/:id', requireRole('ADMIN', 'DOCTOR', 'NURSE'), updatePatient);
-patientRouter.delete('/:id', deletePatient);
+patientRouter.get('/', requirePermission(PERMISSIONS.PATIENTS_VIEW), getPatients);
+patientRouter.post('/', requirePermission(PERMISSIONS.PATIENTS_CREATE), createPatient);
+patientRouter.get('/:id', requirePermission(PERMISSIONS.PATIENTS_VIEW), authorizePatientAccess, getPatientById);
+patientRouter.patch('/:id', requirePermission(PERMISSIONS.PATIENTS_UPDATE), authorizePatientAccess, updatePatient);
+patientRouter.delete('/:id', requirePermission(PERMISSIONS.PATIENTS_DELETE), deletePatient);
 
 // Patient vitals endpoints
-patientRouter.get('/:id/vitals', getPatientVitals);
-patientRouter.get('/:id/vitals/latest', getLatestPatientVitals);
+patientRouter.get('/:id/vitals', requirePermission(PERMISSIONS.VITALS_VIEW), authorizePatientAccess, getPatientVitals);
+patientRouter.get('/:id/vitals/latest', requirePermission(PERMISSIONS.VITALS_VIEW), authorizePatientAccess, getLatestPatientVitals);

@@ -1,6 +1,7 @@
 import { prisma } from '../config/prisma.js';
 import { ingestVitalsSchema } from '../validations/vitals.validation.js';
 import { emitVitalsUpdate, emitDeviceStatus } from '../services/socket.service.js';
+import { recordAuditLog } from '../services/audit.service.js';
 
 /**
  * POST /api/vitals/ingest
@@ -223,6 +224,21 @@ export async function getPatientVitals(req, res, next) {
       }),
     ]);
 
+    if (req.user) {
+      recordAuditLog({
+        userId: req.user.id,
+        userName: req.user.name,
+        userEmail: req.user.email,
+        userRole: req.user.role,
+        action: 'VITALS_VIEW',
+        resourceType: 'VitalReading',
+        resourceId: patient.id,
+        metadata: { sampleCount: readings.length, patientCode: patient.patientCode },
+        ipAddress: req.ip,
+        status: 'SUCCESS',
+      });
+    }
+
     res.status(200).json({
       success: true,
       data: readings,
@@ -278,6 +294,21 @@ export async function getLatestPatientVitals(req, res, next) {
         },
       },
     });
+
+    if (req.user) {
+      recordAuditLog({
+        userId: req.user.id,
+        userName: req.user.name,
+        userEmail: req.user.email,
+        userRole: req.user.role,
+        action: 'VITALS_VIEW',
+        resourceType: 'VitalReading',
+        resourceId: patient.id,
+        metadata: { sampleCount: readings.length, patientCode: patient.patientCode },
+        ipAddress: req.ip,
+        status: 'SUCCESS',
+      });
+    }
 
     res.status(200).json({
       success: true,

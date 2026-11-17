@@ -12,6 +12,10 @@ import { prisma } from '../config/prisma.js';
 
 let io = null;
 
+export function getSocketIO() {
+  return io;
+}
+
 /**
  * Initializes Socket.IO with the HTTP server
  */
