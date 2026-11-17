@@ -1,11 +1,18 @@
 import { Router } from 'express';
 import { checkDatabaseConnection } from '../config/prisma.js';
+import { checkRedisConnection } from '../config/redis.js';
+import { getQueueMetrics } from '../services/queue.service.js';
 
 export const healthRouter = Router();
 
 healthRouter.get('/health', async (req, res, next) => {
   try {
-    const dbStatus = await checkDatabaseConnection();
+    const [dbStatus, redisStatus, queueMetrics] = await Promise.all([
+      checkDatabaseConnection(),
+      checkRedisConnection(),
+      getQueueMetrics(),
+    ]);
+
     const uptimeSeconds = Math.floor(process.uptime());
     const memory = process.memoryUsage();
 
@@ -26,6 +33,13 @@ healthRouter.get('/health', async (req, res, next) => {
         latency: dbStatus.latencyMs ? `${dbStatus.latencyMs}ms` : null,
         ...(dbStatus.error && { message: 'Database service not currently responding. Check PostgreSQL service & credentials.' }),
       },
+      cacheAndQueue: {
+        status: redisStatus.connected ? 'connected' : 'degraded',
+        provider: 'Redis (BullMQ)',
+        latency: redisStatus.latencyMs ? `${redisStatus.latencyMs}ms` : null,
+        ...(redisStatus.error && { message: redisStatus.error }),
+        queues: queueMetrics.queues,
+      },
       edgeSubsystem: {
         status: 'ready',
         architecture: 'Decentralized IoMT Edge Gateway',
@@ -44,7 +58,6 @@ healthRouter.get('/health', async (req, res, next) => {
       },
     };
 
-    // Return 200 even if degraded so monitoring tools receive the structured diagnostic JSON
     res.status(200).json(response);
   } catch (error) {
     next(error);

@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node src/simulator.js",
     "simulate": "node src/simulator.js",
+    "demo": "node demo-academic-scenario.js",
     "edge-processor": "node src/edge-processor.js --simulate"
   },
   "keywords": [
